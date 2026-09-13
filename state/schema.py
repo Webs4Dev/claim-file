@@ -1,17 +1,43 @@
-from typing import Any
+from typing import Literal
 from pydantic import BaseModel, Field
 
-from pydantic import BaseModel, Field
+POLICY_VALIDITY = "Policy Validity"
+DRIVER_LICENCE = "Driver and Licence Information"
+VEHICLE_INFO = "Vehicle Information"
+ACCIDENT_INFO = "Accident Information"
+DAMAGE_INFO = "Damage Information"
+THIRD_PARTY = "Third-Party Involvement"
+POLICE_FIR = "Police/FIR Information"
+
+
+InvestigationCategory = Literal[
+    "Policy Validity",
+    "Driver and Licence Information",
+    "Vehicle Information",
+    "Accident Information",
+    "Damage Information",
+    "Third-Party Involvement",
+    "Police/FIR Information",
+]
+
+InvestigationStatus = Literal[
+    "VALID",
+    "INVALID",
+    "CONCERN",
+    "INSUFFICIENT_EVIDENCE",
+]
 
 
 class PolicyDetails(BaseModel):
     policy_number: str | None = None
     insurance_period: str | None = None
 
+
 class VehicleDetails(BaseModel):
     registration_number: str | None = None
     make: str | None = None
     model: str | None = None
+
 
 class AccidentDetails(BaseModel):
     date: str | None = None
@@ -19,21 +45,31 @@ class AccidentDetails(BaseModel):
     location: str | None = None
     description: str | None = None
 
+
 class DriverDetails(BaseModel):
-    name: str | None = None
+    name: str | None = Field(
+        default=None,
+        description=(
+            "The driver's personal name ONLY. Do not include address, "
+            "phone number, or any other detail that appears adjacent to "
+            "the name in the source document, even on the same line or "
+            "in the same field."
+        ),
+    )
     license_number: str | None = None
     license_expiry_date: str | None = None
     authorized_vehicle_types: list[str] = Field(default_factory=list)
+
 
 class DamageDetails(BaseModel):
     description: str | None = None
     estimated_repair_cost: float | None = None
 
+
 class PoliceDetails(BaseModel):
     fir_number: str | None = None
     fir_date: str | None = None
     police_station: str | None = None
-
 
 
 class ClaimExtraction(BaseModel):
@@ -43,8 +79,21 @@ class ClaimExtraction(BaseModel):
     driver: DriverDetails = Field(default_factory=DriverDetails)
     damage: DamageDetails = Field(default_factory=DamageDetails)
     police: PoliceDetails = Field(default_factory=PoliceDetails)
-    
     third_party_involved: bool | None = None
+
+
+class InvestigationFinding(BaseModel):
+    category: InvestigationCategory
+    status: InvestigationStatus
+    finding: str
+    evidence: str
+
+
+class InvestigationResult(BaseModel):
+    overall_status: InvestigationStatus
+    findings: list[InvestigationFinding] = Field(default_factory=list)
+    missing_information: list[str] = Field(default_factory=list)
+    contradictions: list[str] = Field(default_factory=list)
 
 
 class ClaimState(BaseModel):
@@ -52,8 +101,8 @@ class ClaimState(BaseModel):
     documents: list[str] = Field(default_factory=list)
 
     extracted_data: ClaimExtraction | None = None
-    investigation: dict[str, Any] = Field(default_factory=dict)
-    review: dict[str, Any] = Field(default_factory=dict)
+    investigation: InvestigationResult | None = None
+    review: dict = Field(default_factory=dict)
 
     current_agent: str = "supervisor"
     status: str = "pending"

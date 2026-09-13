@@ -1,6 +1,6 @@
 services:
   redis:
     image: redis:7
-    container_name: casefile-redis
+    container_name: claimfile-redis
     ports:
       - "6379:6379"
