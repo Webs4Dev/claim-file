@@ -1,5 +1,7 @@
 from typing import Literal
+
 from pydantic import BaseModel, Field
+
 
 POLICY_VALIDITY = "Policy Validity"
 DRIVER_LICENCE = "Driver and Licence Information"
@@ -19,6 +21,7 @@ InvestigationCategory = Literal[
     "Third-Party Involvement",
     "Police/FIR Information",
 ]
+
 
 InvestigationStatus = Literal[
     "VALID",
@@ -47,15 +50,7 @@ class AccidentDetails(BaseModel):
 
 
 class DriverDetails(BaseModel):
-    name: str | None = Field(
-        default=None,
-        description=(
-            "The driver's personal name ONLY. Do not include address, "
-            "phone number, or any other detail that appears adjacent to "
-            "the name in the source document, even on the same line or "
-            "in the same field."
-        ),
-    )
+    name: str | None = None
     license_number: str | None = None
     license_expiry_date: str | None = None
     authorized_vehicle_types: list[str] = Field(default_factory=list)
@@ -96,13 +91,24 @@ class InvestigationResult(BaseModel):
     contradictions: list[str] = Field(default_factory=list)
 
 
+class ReviewResult(BaseModel):
+    status: Literal[
+        "APPROVED",
+        "NEEDS_INVESTIGATION",
+        "REJECTED",
+    ]
+    summary: str
+    concerns: list[str] = Field(default_factory=list)
+    required_actions: list[str] = Field(default_factory=list)
+
+
 class ClaimState(BaseModel):
     claim_id: str
     documents: list[str] = Field(default_factory=list)
 
     extracted_data: ClaimExtraction | None = None
     investigation: InvestigationResult | None = None
-    review: dict = Field(default_factory=dict)
+    review: ReviewResult | None = None
 
     current_agent: str = "supervisor"
     status: str = "pending"
