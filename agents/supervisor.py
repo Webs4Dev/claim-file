@@ -1,5 +1,6 @@
 from typing import Literal
 
+from config import MAX_STEPS
 from state.schema import ClaimState
 
 
@@ -14,6 +15,10 @@ SupervisorRoute = Literal[
 
 
 def get_next_agent(state: ClaimState) -> SupervisorRoute:
+    if state.step_count >= MAX_STEPS:
+        state.status = "terminated"
+        return "terminated"
+
     if state.status == "terminated":
         return "terminated"
 
