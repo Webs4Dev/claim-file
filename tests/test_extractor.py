@@ -20,5 +20,12 @@ assert extraction.driver.name is not None
 assert extraction.damage.description is not None
 assert state.step_count == 1
 
-print("\nExtracted Claim Data:")
+print("=" * 50)
+print("CLAIM DATA")
+print("=" * 50)
 print(extraction.model_dump_json(indent=2))
+print("=" * 50)
+print("BUDGET USAGE")
+print("=" * 50)
+print(f"Tokens used: {state.token_usage}")
+print(f"Estimated cost: ${state.estimated_cost:.6f}")

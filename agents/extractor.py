@@ -5,7 +5,8 @@ from openai import OpenAI
 
 from config import OPENAI_API_KEY, OPENAI_MODEL
 from state.schema import ClaimExtraction, ClaimState
-
+from state.budget import add_usage
+from state.cost import calculate_cost
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -134,6 +135,22 @@ When in doubt on any field, default to null rather than guessing.
 
     if extraction is None:
         raise ValueError("No structured extraction was returned")
+
+    if response.usage:
+        input_tokens = response.usage.input_tokens
+        output_tokens = response.usage.output_tokens
+
+        cost = calculate_cost(
+            input_tokens,
+            output_tokens,
+        )
+
+        add_usage(
+            state,
+            input_tokens,
+            output_tokens,
+            cost,
+        )
 
     state.extracted_data = extraction
     state.current_agent = "supervisor"

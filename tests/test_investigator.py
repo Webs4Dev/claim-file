@@ -30,6 +30,10 @@ def test_investigate_claim():
     print("\n" + "=" * 60)
     print(f"STEP COUNT: {state.step_count}")
     print("=" * 60)
+    print("BUDGET USAGE")
+    print("=" * 60)
+    print(f"Tokens used: {state.token_usage}")
+    print(f"Estimated cost: ${state.estimated_cost:.6f}")
 
 
 if __name__ == "__main__":
