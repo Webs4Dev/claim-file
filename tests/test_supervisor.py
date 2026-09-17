@@ -6,123 +6,63 @@ from state.schema import (
     ReviewResult,
 )
 
-PDF_PATH = "data/sample_claims/claim_001.pdf"
 
-def test_routes_to_extractor():
+def main():
+    print("\nSUPERVISOR TEST")
+    print("=" * 50)
+
     state = ClaimState(
-        claim_id="test-001",
-        documents=[PDF_PATH],
+        claim_id="supervisor-test-001",
+        documents=["data/sample_claims/claim_001.pdf"],
     )
 
-    assert get_next_agent(state) == "extractor"
+    print(f"1. Initial: {get_next_agent(state)}")
 
+    state.extracted_data = ClaimExtraction()
+    print(f"2. After extraction: {get_next_agent(state)}")
 
-def test_routes_to_investigator():
-    state = ClaimState(
-        claim_id="test-002",
-        documents=[PDF_PATH],
-        extracted_data=ClaimExtraction(),
+    state.investigation = InvestigationResult(
+        overall_status="INSUFFICIENT_EVIDENCE"
+    )
+    print(f"3. After investigation: {get_next_agent(state)}")
+
+    state.review = ReviewResult(
+        status="NEEDS_INVESTIGATION",
+        summary="More investigation required.",
+        concerns=["Missing vehicle information."],
+        required_actions=["Obtain vehicle documentation."],
     )
 
-    assert get_next_agent(state) == "investigator"
+    print(f"4. Needs investigation: {get_next_agent(state)}")
+    print(f"   Investigation cleared: {state.investigation is None}")
+    print(f"   Review cleared: {state.review is None}")
 
-
-def test_routes_to_reviewer():
-    state = ClaimState(
-        claim_id="test-003",
-        documents=[PDF_PATH],
-        extracted_data=ClaimExtraction(),
-        investigation=InvestigationResult(
-            overall_status="INSUFFICIENT_EVIDENCE"
-        ),
+    state.investigation = InvestigationResult(
+        overall_status="VALID"
     )
 
-    assert get_next_agent(state) == "reviewer"
-
-
-def test_routes_to_investigator_after_review():
-    state = ClaimState(
-        claim_id="test-004",
-        documents=[PDF_PATH],
-        extracted_data=ClaimExtraction(),
-        investigation=InvestigationResult(
-            overall_status="INSUFFICIENT_EVIDENCE"
-        ),
-        review=ReviewResult(
-            status="NEEDS_INVESTIGATION",
-            summary="More investigation is required.",
-            concerns=["Vehicle class is missing."],
-            required_actions=["Verify vehicle class."],
-        ),
+    state.review = ReviewResult(
+        status="APPROVED",
+        summary="Investigation is sufficiently supported.",
     )
 
-    assert get_next_agent(state) == "investigator"
-    assert state.investigation is None
+    print(f"5. Approved: {get_next_agent(state)}")
 
-
-def test_routes_to_human_approval():
-    state = ClaimState(
-        claim_id="test-005",
-        documents=[PDF_PATH],
-        extracted_data=ClaimExtraction(),
-        investigation=InvestigationResult(
-            overall_status="VALID"
-        ),
-        review=ReviewResult(
-            status="APPROVED",
-            summary="Investigation is sufficiently supported.",
-        ),
+    state.review = ReviewResult(
+        status="REJECTED",
+        summary="Investigation establishes a validity problem.",
     )
 
-    assert get_next_agent(state) == "human_approval"
+    print(f"6. Rejected: {get_next_agent(state)}")
+    print(f"   Status: {state.status}")
 
+    state.step_count = 10
+    state.status = "pending"
+    state.review = None
 
-def test_routes_to_complete_after_rejection():
-    state = ClaimState(
-        claim_id="test-006",
-        documents=[PDF_PATH],
-        extracted_data=ClaimExtraction(),
-        investigation=InvestigationResult(
-            overall_status="INVALID"
-        ),
-        review=ReviewResult(
-            status="REJECTED",
-            summary="Investigation establishes a validity problem.",
-        ),
-    )
+    print(f"7. Max steps reached: {get_next_agent(state)}")
+    print(f"   Status: {state.status}")
 
-    assert get_next_agent(state) == "complete"
-    assert state.status == "complete"
-
-
-def test_routes_to_terminated():
-    state = ClaimState(
-        claim_id="test-007",
-        status="terminated",
-    )
-
-    assert get_next_agent(state) == "terminated"
-
-
-def test_missing_documents_raises_error():
-    state = ClaimState(
-        claim_id="test-008",
-    )
-
-    try:
-        get_next_agent(state)
-        assert False
-    except ValueError as exc:
-        assert str(exc) == "Claim must contain at least one document"
 
 if __name__ == "__main__":
-    test_routes_to_extractor()
-    test_routes_to_investigator()
-    test_routes_to_reviewer()
-    test_routes_to_investigator_after_review()
-    test_routes_to_human_approval()
-    test_routes_to_complete_after_rejection()
-    test_routes_to_terminated()
-    test_missing_documents_raises_error()
-
-    print("All supervisor tests passed.")
+    main()

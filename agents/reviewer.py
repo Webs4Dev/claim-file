@@ -1,6 +1,8 @@
 from openai import OpenAI
 
 from config import OPENAI_API_KEY, OPENAI_MODEL
+from state.budget import add_usage
+from state.cost import calculate_cost
 from state.schema import ClaimState, InvestigationResult, ReviewResult
 
 
@@ -21,8 +23,8 @@ investigation.
 Do not perform document extraction. Do not re-derive or recompute any
 extracted facts.
 
-Do not invent, assume, estimate, or infer facts that are not present
-in the investigation below.
+Do not invent, assume, estimate, or infer facts that are not present in
+the investigation below.
 
 Do not make a final payout or approval decision.
 
@@ -53,8 +55,8 @@ REVIEW RULES
    Investigator. Do not challenge or override these statuses. You may
    still flag them if their stated finding/evidence text is unclear,
    internally inconsistent, or overclaims beyond what the deterministic
-   check actually determined (e.g. licence expiry validity does not
-   by itself establish that the licence category matches the vehicle).
+   check actually determined (e.g. licence expiry validity does not by
+   itself establish that the licence category matches the vehicle).
 
 4. Missing information
    Check the missing_information list and judge whether any item is
@@ -158,6 +160,22 @@ def review_claim(state: ClaimState) -> ClaimState:
 
     if review is None:
         raise ValueError("No structured review was returned")
+
+    if response.usage:
+        input_tokens = response.usage.input_tokens
+        output_tokens = response.usage.output_tokens
+
+        cost = calculate_cost(
+            input_tokens,
+            output_tokens,
+        )
+
+        add_usage(
+            state,
+            input_tokens,
+            output_tokens,
+            cost,
+        )
 
     state.review = review
     state.current_agent = "supervisor"

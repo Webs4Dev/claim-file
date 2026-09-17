@@ -3,7 +3,9 @@ from agents.investigator import investigate_claim
 from agents.reviewer import review_claim
 from state.schema import ClaimState
 
+
 PDF_PATH = "data/sample_claims/claim_001.pdf"
+
 
 def main():
     state = ClaimState(
@@ -24,6 +26,8 @@ def main():
     print(f"Current agent: {state.current_agent}")
     print(f"Status: {state.status}")
     print(f"Steps: {state.step_count}")
+    print(f"Tokens used: {state.token_usage}")
+    print(f"Estimated cost: ${state.estimated_cost:.6f}")
 
 
 if __name__ == "__main__":

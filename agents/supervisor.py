@@ -15,11 +15,11 @@ SupervisorRoute = Literal[
 
 
 def get_next_agent(state: ClaimState) -> SupervisorRoute:
-    if state.step_count >= MAX_STEPS:
-        state.status = "terminated"
+    if state.status == "terminated":
         return "terminated"
 
-    if state.status == "terminated":
+    if state.step_count >= MAX_STEPS:
+        state.status = "terminated"
         return "terminated"
 
     if state.extracted_data is None:
@@ -31,12 +31,13 @@ def get_next_agent(state: ClaimState) -> SupervisorRoute:
     if state.investigation is None:
         return "investigator"
 
-    if not state.review:
+    if state.review is None:
         return "reviewer"
 
     review_status = state.review.status
 
     if review_status == "NEEDS_INVESTIGATION":
+        state.review = None
         state.investigation = None
         return "investigator"
 
@@ -50,3 +51,7 @@ def get_next_agent(state: ClaimState) -> SupervisorRoute:
     raise ValueError(
         f"Unknown review status: {review_status}"
     )
+
+
+if __name__ == "__main__":
+    print("Supervisor module loaded successfully.")

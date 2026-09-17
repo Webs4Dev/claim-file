@@ -1,39 +1,12 @@
-from pathlib import Path
-
-import pymupdf
 from openai import OpenAI
 
 from config import OPENAI_API_KEY, OPENAI_MODEL
-from state.schema import ClaimExtraction, ClaimState
 from state.budget import add_usage
 from state.cost import calculate_cost
+from state.schema import ClaimExtraction, ClaimState
+from tools.documents import read_document
 
 client = OpenAI(api_key=OPENAI_API_KEY)
-
-
-def read_pdf(path: str) -> str:
-    document = pymupdf.open(path)
-
-    text = ""
-
-    for page in document:
-        text += page.get_text()
-
-    document.close()
-
-    return text
-
-
-def read_document(path: str) -> str:
-    file_path = Path(path)
-
-    if file_path.suffix.lower() == ".pdf":
-        return read_pdf(path)
-
-    if file_path.suffix.lower() == ".txt":
-        return file_path.read_text()
-
-    raise ValueError(f"Unsupported document type: {file_path.suffix}")
 
 
 def extract_claim_data(state: ClaimState) -> ClaimState:
