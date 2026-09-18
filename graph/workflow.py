@@ -24,12 +24,30 @@ def route_from_supervisor(state: ClaimState) -> str:
 def build_workflow():
     workflow = StateGraph(ClaimState)
 
-    workflow.add_node("supervisor", supervisor_node)
-    workflow.add_node("extractor", extract_claim_data)
-    workflow.add_node("investigator", investigate_claim)
-    workflow.add_node("reviewer", review_claim)
+    workflow.add_node(
+        "supervisor",
+        supervisor_node,
+    )
 
-    workflow.add_edge(START, "supervisor")
+    workflow.add_node(
+        "extractor",
+        extract_claim_data,
+    )
+
+    workflow.add_node(
+        "investigator",
+        investigate_claim,
+    )
+
+    workflow.add_node(
+        "reviewer",
+        review_claim,
+    )
+
+    workflow.add_edge(
+        START,
+        "supervisor",
+    )
 
     workflow.add_conditional_edges(
         "supervisor",
@@ -44,8 +62,19 @@ def build_workflow():
         },
     )
 
-    workflow.add_edge("extractor", "supervisor")
-    workflow.add_edge("investigator", "supervisor")
-    workflow.add_edge("reviewer", "supervisor")
+    workflow.add_edge(
+        "extractor",
+        "supervisor",
+    )
+
+    workflow.add_edge(
+        "investigator",
+        "supervisor",
+    )
+
+    workflow.add_edge(
+        "reviewer",
+        "supervisor",
+    )
 
     return workflow.compile()

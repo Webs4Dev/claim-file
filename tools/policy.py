@@ -13,8 +13,25 @@ def search_tata_aig_policy(
         top_k=5,
     )
 
+    formatted_results = []
+
+    for index, result in enumerate(results, start=1):
+        formatted_results.append(
+            {
+                "result_number": index,
+                "source": result["source"],
+                "product": result["product"],
+                "document_type": result["document_type"],
+                "page_start": result["page_start"],
+                "page_end": result["page_end"],
+                "section": result["section"],
+                "text": result["text"],
+                "distance": result["distance"],
+            }
+        )
+
     return json.dumps(
-        results,
+        formatted_results,
         ensure_ascii=False,
     )
 
@@ -23,11 +40,13 @@ POLICY_SEARCH_TOOL = {
     "type": "function",
     "name": "search_tata_aig_policy",
     "description": (
-        "Search the Tata AIG policy knowledge base for relevant "
-        "policy wording, coverage, exclusions, conditions, "
-        "definitions, or other policy rules. Use this tool when "
-        "policy evidence is needed to investigate a claim. "
-        "Do not treat general insurance knowledge as policy evidence."
+        "Search the Tata AIG motor insurance policy knowledge base "
+        "for authoritative policy evidence. Use this tool when "
+        "investigating coverage, exclusions, conditions, definitions, "
+        "IDV, claim requirements, or other policy rules. "
+        "Search using a specific policy question. "
+        "Do not rely on general insurance knowledge when policy "
+        "evidence can be retrieved from this tool."
     ),
     "parameters": {
         "type": "object",
@@ -35,16 +54,17 @@ POLICY_SEARCH_TOOL = {
             "query": {
                 "type": "string",
                 "description": (
-                    "The specific policy question or information "
-                    "that needs to be verified."
+                    "A specific policy question that needs to be "
+                    "verified. Include the relevant claim issue, "
+                    "coverage, exclusion, condition, or rule."
                 ),
             },
             "product": {
                 "type": "string",
                 "description": (
-                    "The Tata AIG motor insurance product whose "
-                    "policy should be searched, for example "
-                    "'private_car'."
+                    "The Tata AIG motor insurance product to search. "
+                    "Use 'private_car' for Tata AIG Private Car "
+                    "policies."
                 ),
             },
         },

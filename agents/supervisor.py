@@ -14,7 +14,9 @@ SupervisorRoute = Literal[
 ]
 
 
-def get_next_agent(state: ClaimState) -> SupervisorRoute:
+def get_next_agent(
+    state: ClaimState,
+) -> SupervisorRoute:
     if state.status == "terminated":
         return "terminated"
 
@@ -24,7 +26,9 @@ def get_next_agent(state: ClaimState) -> SupervisorRoute:
 
     if state.extracted_data is None:
         if not state.documents:
-            raise ValueError("Claim must contain at least one document")
+            raise ValueError(
+                "Claim must contain at least one document"
+            )
 
         return "extractor"
 
@@ -37,7 +41,6 @@ def get_next_agent(state: ClaimState) -> SupervisorRoute:
     review_status = state.review.status
 
     if review_status == "NEEDS_INVESTIGATION":
-        state.review = None
         state.investigation = None
         return "investigator"
 
