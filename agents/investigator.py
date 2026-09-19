@@ -4,7 +4,10 @@ from datetime import datetime
 from openai import OpenAI
 
 from config import OPENAI_API_KEY, OPENAI_MODEL
-from state.budget import add_usage
+from state.budget import (
+    add_usage,
+    can_make_model_call,
+)
 from state.cost import calculate_cost
 from state.schema import (
     DRIVER_LICENCE,
@@ -15,7 +18,10 @@ from state.schema import (
     InvestigationResult,
     InvestigationStatus,
 )
-from tools.policy import POLICY_SEARCH_TOOL, search_tata_aig_policy
+from tools.policy import (
+    POLICY_SEARCH_TOOL,
+    search_tata_aig_policy,
+)
 
 
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -184,8 +190,8 @@ whether the licence was unexpired on the accident date. It does NOT establish
 whether the licence category authorizes the driver for the specific insured
 vehicle.
 
-Your finding for this category must not claim licence-vehicle authorization or
-compatibility as established unless the extracted data explicitly includes
+Your finding for this category must not claim licence-vehicle authorization
+or compatibility as established unless the extracted data explicitly includes
 the insured vehicle's class/category and it matches an entry in
 authorized_vehicle_types.
 
@@ -393,7 +399,10 @@ def _enforce_deterministic_status(
                 )
             )
 
-    if "INVALID" in {policy_status, license_status}:
+    if "INVALID" in {
+        policy_status,
+        license_status,
+    }:
         investigation.overall_status = "INVALID"
 
 
@@ -434,14 +443,19 @@ def _execute_policy_tool(
     product = parsed_arguments.get("product")
 
     if not isinstance(query, str) or not query.strip():
-        raise ValueError("Policy tool query is required")
+        raise ValueError(
+            "Policy tool query is required"
+        )
 
     if not isinstance(product, str) or not product.strip():
-        raise ValueError("Policy tool product is required")
+        raise ValueError(
+            "Policy tool product is required"
+        )
 
     if product != "private_car":
         raise ValueError(
-            "The current investigation scope supports Tata AIG private_car only"
+            "The current investigation scope supports "
+            "Tata AIG private_car only"
         )
 
     return search_tata_aig_policy(
@@ -455,6 +469,12 @@ def _run_investigation_model(
     policy_status: InvestigationStatus,
     license_status: InvestigationStatus,
 ) -> InvestigationResult:
+
+    if not can_make_model_call(state):
+        raise RuntimeError(
+            "Investigation stopped because the claim budget was exceeded"
+        )
+
     prompt = build_investigation_prompt(
         state,
         policy_status,
@@ -509,6 +529,12 @@ def _run_investigation_model(
                 }
             )
 
+        if not can_make_model_call(state):
+            raise RuntimeError(
+                "Investigation stopped because the claim budget "
+                "was exceeded after policy retrieval"
+            )
+
         response = client.responses.create(
             model=OPENAI_MODEL,
             input=input_items,
@@ -516,6 +542,12 @@ def _run_investigation_model(
         )
 
         _record_usage(state, response)
+
+    if not can_make_model_call(state):
+        raise RuntimeError(
+            "Investigation stopped because the claim budget "
+            "was exceeded before structured output"
+        )
 
     final_response = client.responses.parse(
         model=OPENAI_MODEL,
