@@ -3,12 +3,15 @@ from langgraph.graph import END, START, StateGraph
 from agents.extractor import extract_claim_data
 from agents.investigator import investigate_claim
 from agents.reviewer import review_claim
-from state.budget import budget_exceeded
 from graph.routing import route_supervisor
+from state.budget import budget_exceeded
 from state.schema import ClaimState
+from state.store import save_snapshot
 
 
-def supervisor(state: ClaimState) -> ClaimState:
+def supervisor(
+    state: ClaimState,
+) -> ClaimState:
     if budget_exceeded(state):
         state.status = "budget_exceeded"
         return state
@@ -35,6 +38,13 @@ def supervisor(state: ClaimState) -> ClaimState:
     return state
 
 
+def save_state_snapshot(
+    state: ClaimState,
+) -> ClaimState:
+    save_snapshot(state)
+    return state
+
+
 def build_workflow():
     workflow = StateGraph(ClaimState)
 
@@ -58,6 +68,11 @@ def build_workflow():
         review_claim,
     )
 
+    workflow.add_node(
+        "save_snapshot",
+        save_state_snapshot,
+    )
+
     workflow.add_edge(
         START,
         "supervisor",
@@ -76,16 +91,21 @@ def build_workflow():
 
     workflow.add_edge(
         "extractor",
-        "supervisor",
+        "save_snapshot",
     )
 
     workflow.add_edge(
         "investigator",
-        "supervisor",
+        "save_snapshot",
     )
 
     workflow.add_edge(
         "reviewer",
+        "save_snapshot",
+    )
+
+    workflow.add_edge(
+        "save_snapshot",
         "supervisor",
     )
 

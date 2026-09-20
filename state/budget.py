@@ -2,28 +2,36 @@ from config import MAX_COST, MAX_STEPS, MAX_TOKENS
 from state.schema import ClaimState
 
 
-def steps_remaining(state: ClaimState) -> int:
+def steps_remaining(
+    state: ClaimState,
+) -> int:
     return max(
         MAX_STEPS - state.step_count,
         0,
     )
 
 
-def tokens_remaining(state: ClaimState) -> int:
+def tokens_remaining(
+    state: ClaimState,
+) -> int:
     return max(
         MAX_TOKENS - state.token_usage,
         0,
     )
 
 
-def cost_remaining(state: ClaimState) -> float:
+def cost_remaining(
+    state: ClaimState,
+) -> float:
     return max(
         MAX_COST - state.estimated_cost,
         0.0,
     )
 
 
-def budget_exceeded(state: ClaimState) -> bool:
+def budget_exceeded(
+    state: ClaimState,
+) -> bool:
     return (
         state.step_count >= MAX_STEPS
         or state.token_usage >= MAX_TOKENS
@@ -35,6 +43,20 @@ def can_make_model_call(
     state: ClaimState,
 ) -> bool:
     return not budget_exceeded(state)
+
+
+def max_output_tokens(
+    state: ClaimState,
+    reserve_tokens: int = 500,
+) -> int:
+    remaining = tokens_remaining(state)
+
+    allowed = remaining - reserve_tokens
+
+    return max(
+        allowed,
+        0,
+    )
 
 
 def add_usage(

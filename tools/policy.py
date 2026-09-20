@@ -10,7 +10,7 @@ def search_tata_aig_policy(
     results = retrieve_policy_chunks(
         query=query,
         product=product,
-        top_k=5,
+        top_k=3,
     )
 
     formatted_results = []
@@ -41,10 +41,12 @@ POLICY_SEARCH_TOOL = {
     "name": "search_tata_aig_policy",
     "description": (
         "Search the Tata AIG motor insurance policy knowledge base "
-        "for authoritative policy evidence. Use this tool when "
-        "investigating coverage, exclusions, conditions, definitions, "
-        "IDV, claim requirements, or other policy rules. "
-        "Search using a specific policy question. "
+        "for authoritative policy evidence. "
+        "Use this tool only when a specific policy question needs "
+        "verification. "
+        "Ask one focused policy question per search. "
+        "Prioritize the most important unresolved policy issue. "
+        "The tool returns the most relevant policy evidence. "
         "Do not rely on general insurance knowledge when policy "
         "evidence can be retrieved from this tool."
     ),
@@ -54,7 +56,7 @@ POLICY_SEARCH_TOOL = {
             "query": {
                 "type": "string",
                 "description": (
-                    "A specific policy question that needs to be "
+                    "One specific policy question that needs to be "
                     "verified. Include the relevant claim issue, "
                     "coverage, exclusion, condition, or rule."
                 ),

@@ -1,7 +1,11 @@
 from openai import OpenAI
 
 from config import OPENAI_API_KEY, OPENAI_MODEL
-from state.budget import add_usage, can_make_model_call
+from state.budget import (
+    add_usage,
+    can_make_model_call,
+    max_output_tokens,
+)
 from state.cost import calculate_cost
 from state.schema import (
     ClaimState,
@@ -50,16 +54,12 @@ its stated conclusion (status + finding text).
 2. Overclaiming
 
 Check whether any finding draws a stronger conclusion than its
-evidence allows — for example, treating an absence of information
-as proof of something, or asserting a relationship between two
-facts (e.g. authorization, compatibility, verification) that the
-evidence does not explicitly establish.
+evidence allows.
 
 3. System-computed categories
 
 "Policy Validity" and "Driver and Licence Information" statuses are
-computed deterministically by the system, not judged by the
-Investigator.
+computed deterministically by the system, not judged by the Investigator.
 
 Do not challenge or override these statuses.
 
@@ -67,29 +67,24 @@ You may still flag them if their stated finding/evidence text is
 unclear, internally inconsistent, or overclaims beyond what the
 deterministic check actually determined.
 
-For example, licence expiry validity does not by itself establish
-that the licence category matches the vehicle.
+Licence expiry validity does not by itself establish that the licence
+category matches the vehicle.
 
 4. Missing information
 
 Check the missing_information list and judge whether any item is
-materially important — meaning it could plausibly change a finding's
-status if it were available.
+materially important.
 
 Do not treat missing information as proof that the claim is invalid.
-
-Do not flag missing information that is immaterial or merely
-nice-to-have.
 
 5. Contradictions
 
 Check the contradictions list and judge whether each one requires
-additional investigation before the claim can proceed.
+additional investigation.
 
 6. Consistency
 
-Check whether overall_status is consistent with the individual
-findings.
+Check whether overall_status is consistent with the individual findings.
 
 For example:
 
@@ -126,22 +121,21 @@ is required before the claim can proceed.
 
 REJECTED
 
-The investigation itself establishes a disqualifying validity problem
-(e.g. a finding of INVALID that is well-supported by its evidence and
-is not merely a missing-information issue).
+The investigation itself establishes a disqualifying validity problem.
 
-IMPORTANT
+REJECTED must only be used when the investigation's own findings and
+evidence establish a disqualifying validity problem.
 
-- REJECTED must only be used when the investigation's own findings and
-  evidence establish a disqualifying validity problem.
-- Do not use REJECTED to express doubt or reviewer suspicion.
-- INSUFFICIENT_EVIDENCE on an individual finding does not by itself
-  justify REJECTED.
-- Prefer NEEDS_INVESTIGATION in that case.
-- If you are uncertain between APPROVED and NEEDS_INVESTIGATION,
-  prefer NEEDS_INVESTIGATION only when you can name a specific,
-  material reason in concerns or required_actions.
-- Do not select NEEDS_INVESTIGATION on vague or generic doubt.
+Do not use REJECTED to express doubt or reviewer suspicion.
+
+INSUFFICIENT_EVIDENCE on an individual finding does not by itself
+justify REJECTED.
+
+Prefer NEEDS_INVESTIGATION in that case.
+
+If you are uncertain between APPROVED and NEEDS_INVESTIGATION, prefer
+NEEDS_INVESTIGATION only when you can name a specific, material reason
+in concerns or required_actions.
 
 CONCERNS
 
@@ -209,6 +203,12 @@ def review_claim(
         state.status = "budget_exceeded"
         return state
 
+    allowed_output_tokens = max_output_tokens(state)
+
+    if allowed_output_tokens <= 0:
+        state.status = "budget_exceeded"
+        return state
+
     response = client.responses.parse(
         model=OPENAI_MODEL,
         input=[
@@ -220,6 +220,7 @@ def review_claim(
             }
         ],
         text_format=ReviewResult,
+        max_output_tokens=allowed_output_tokens,
     )
 
     _record_usage(
