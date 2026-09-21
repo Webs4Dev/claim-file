@@ -16,26 +16,42 @@ def supervisor(
         state.status = "budget_exceeded"
         return state
 
+    if state.status == "waiting_for_documents":
+        return state
+
     if state.extracted_data is None:
         state.current_agent = "extractor"
+        state.status = "in_progress"
         return state
 
     if state.investigation is None:
         state.current_agent = "investigator"
+        state.status = "in_progress"
         return state
 
     if state.review is None:
         state.current_agent = "reviewer"
+        state.status = "in_progress"
         return state
 
     if state.review.status == "NEEDS_INVESTIGATION":
-        state.current_agent = "investigator"
+        state.status = "waiting_for_documents"
+        state.current_agent = "supervisor"
         return state
 
-    state.status = state.review.status.lower()
-    state.current_agent = "completed"
+    if state.review.status == "APPROVED":
+        state.status = "complete"
+        state.current_agent = "supervisor"
+        return state
 
-    return state
+    if state.review.status == "REJECTED":
+        state.status = "complete"
+        state.current_agent = "supervisor"
+        return state
+
+    raise ValueError(
+        f"Unknown review status: {state.review.status}"
+    )
 
 
 def save_state_snapshot(

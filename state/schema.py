@@ -31,6 +31,30 @@ InvestigationStatus = Literal[
 ]
 
 
+ClaimStatus = Literal[
+    "pending",
+    "in_progress",
+    "waiting_for_documents",
+    "budget_exceeded",
+    "complete",
+    "terminated",
+]
+
+
+DocumentType = Literal[
+    "policy_schedule",
+    "policy_document",
+    "vehicle_registration",
+    "driving_license",
+    "damage_survey_report",
+    "repair_estimate",
+    "repair_invoice",
+    "police_report",
+    "fir_document",
+    "accident_report",
+]
+
+
 class PolicyDetails(BaseModel):
     policy_number: str | None = None
     insurance_period: str | None = None
@@ -53,7 +77,9 @@ class DriverDetails(BaseModel):
     name: str | None = None
     license_number: str | None = None
     license_expiry_date: str | None = None
-    authorized_vehicle_types: list[str] = Field(default_factory=list)
+    authorized_vehicle_types: list[str] = Field(
+        default_factory=list
+    )
 
 
 class DamageDetails(BaseModel):
@@ -68,12 +94,24 @@ class PoliceDetails(BaseModel):
 
 
 class ClaimExtraction(BaseModel):
-    policy: PolicyDetails = Field(default_factory=PolicyDetails)
-    vehicle: VehicleDetails = Field(default_factory=VehicleDetails)
-    accident: AccidentDetails = Field(default_factory=AccidentDetails)
-    driver: DriverDetails = Field(default_factory=DriverDetails)
-    damage: DamageDetails = Field(default_factory=DamageDetails)
-    police: PoliceDetails = Field(default_factory=PoliceDetails)
+    policy: PolicyDetails = Field(
+        default_factory=PolicyDetails
+    )
+    vehicle: VehicleDetails = Field(
+        default_factory=VehicleDetails
+    )
+    accident: AccidentDetails = Field(
+        default_factory=AccidentDetails
+    )
+    driver: DriverDetails = Field(
+        default_factory=DriverDetails
+    )
+    damage: DamageDetails = Field(
+        default_factory=DamageDetails
+    )
+    police: PoliceDetails = Field(
+        default_factory=PoliceDetails
+    )
     third_party_involved: bool | None = None
 
 
@@ -86,9 +124,21 @@ class InvestigationFinding(BaseModel):
 
 class InvestigationResult(BaseModel):
     overall_status: InvestigationStatus
-    findings: list[InvestigationFinding] = Field(default_factory=list)
-    missing_information: list[str] = Field(default_factory=list)
-    contradictions: list[str] = Field(default_factory=list)
+    findings: list[InvestigationFinding] = Field(
+        default_factory=list
+    )
+    missing_information: list[str] = Field(
+        default_factory=list
+    )
+    contradictions: list[str] = Field(
+        default_factory=list
+    )
+
+
+class RequiredDocument(BaseModel):
+    document_type: DocumentType
+    description: str
+    reason: str
 
 
 class ReviewResult(BaseModel):
@@ -98,20 +148,29 @@ class ReviewResult(BaseModel):
         "REJECTED",
     ]
     summary: str
-    concerns: list[str] = Field(default_factory=list)
-    required_actions: list[str] = Field(default_factory=list)
+    concerns: list[str] = Field(
+        default_factory=list
+    )
+    required_actions: list[str] = Field(
+        default_factory=list
+    )
+    required_documents: list[RequiredDocument] = Field(
+        default_factory=list
+    )
 
 
 class ClaimState(BaseModel):
     claim_id: str
-    documents: list[str] = Field(default_factory=list)
+    documents: list[str] = Field(
+        default_factory=list
+    )
 
     extracted_data: ClaimExtraction | None = None
     investigation: InvestigationResult | None = None
     review: ReviewResult | None = None
 
     current_agent: str = "supervisor"
-    status: str = "pending"
+    status: ClaimStatus = "pending"
 
     step_count: int = 0
     token_usage: int = 0

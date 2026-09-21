@@ -35,6 +35,7 @@ def create_claim(
 
 def resume_claim(
     claim_id: str,
+    document_paths: list[str],
 ) -> ClaimState:
     state = load_snapshot(claim_id)
 
@@ -42,6 +43,36 @@ def resume_claim(
         raise ValueError(
             f"No snapshot found for claim: {claim_id}"
         )
+
+    if state.status != "waiting_for_documents":
+        raise ValueError(
+            f"Claim {claim_id} is not waiting for documents"
+        )
+
+    if not document_paths:
+        raise ValueError(
+            "At least one new document is required"
+        )
+
+    for document_path in document_paths:
+        document = Path(document_path)
+
+        if not document.exists():
+            raise FileNotFoundError(
+                f"Claim document not found: {document_path}"
+            )
+
+        document_path = str(document)
+
+        if document_path not in state.documents:
+            state.documents.append(document_path)
+
+    state.extracted_data = None
+    state.investigation = None
+    state.review = None
+
+    state.current_agent = "supervisor"
+    state.status = "in_progress"
 
     result = app.invoke(state)
 

@@ -101,24 +101,54 @@ def build_investigation_prompt(
 ) -> str:
     extraction = state.extracted_data
 
-    reviewer_context = ""
+    investigation_context = ""
 
     if state.review is not None:
-        reviewer_context = f"""
-PREVIOUS REVIEW
+        investigation_context = f"""
+RE-INVESTIGATION
 
-The previous Reviewer identified the following issues:
+This claim has previously been investigated and reviewed.
 
+The previous Reviewer returned the following review:
+
+<previous_review>
 {state.review.model_dump_json(indent=2)}
+</previous_review>
 
-This is a re-investigation.
+This is a re-investigation because the previous review identified issues
+that required additional evidence or investigation.
 
-Focus specifically on resolving the reviewer's concerns and completing the
-required actions.
+The current extraction has been performed again using the complete set of
+documents currently available for this claim.
 
-Do not assume that a concern is true merely because the Reviewer stated it.
-Verify relevant policy-specific issues using the policy search tool when
-necessary.
+Use the previous review only as a guide to identify issues that need to be
+re-examined.
+
+Do not treat the previous review as factual evidence.
+
+Do not assume that a previous concern has been resolved merely because new
+documents are now available.
+
+Re-evaluate the relevant issue using the current extracted claim data and
+any applicable policy evidence.
+
+If the available evidence still does not resolve an issue, keep the
+appropriate finding as CONCERN or INSUFFICIENT_EVIDENCE.
+
+Do not preserve a previous finding merely because it existed before.
+
+Do not change a finding merely because this is a later investigation round.
+Base every finding on the evidence currently available.
+"""
+
+    else:
+        investigation_context = """
+INITIAL INVESTIGATION
+
+This is the first investigation of the claim.
+
+Evaluate the claim using the currently available extracted information and
+applicable policy evidence.
 """
 
     return f"""
@@ -128,12 +158,12 @@ The current implementation investigates Tata AIG Private Car claims.
 
 Your task is to investigate the claim using:
 
-1. The extracted claim information.
+1. The complete extracted claim information currently available.
 2. Tata AIG policy evidence retrieved through the policy search tool when
    policy wording, coverage, exclusions, conditions, definitions, or
    requirements need to be verified.
 
-The Extractor has already processed the source documents.
+The Extractor has already processed the complete current document set.
 
 Do not perform document extraction.
 
@@ -141,6 +171,22 @@ Do not invent, assume, estimate, or infer facts that are not supported by the
 extracted information or retrieved Tata AIG policy evidence.
 
 Do not make a final payout or approval decision.
+
+DOCUMENT AND EVIDENCE SCOPE
+
+The extracted claim data represents the current evidence available from all
+documents submitted for this claim.
+
+Use the complete extracted claim data when investigating the claim.
+
+A document submitted during a later round supplements the earlier claim
+documents. It does not automatically make an earlier concern valid or
+invalid.
+
+If the available evidence contains unresolved contradictions, report them
+rather than choosing a value based on assumptions.
+
+{investigation_context}
 
 POLICY RETRIEVAL TOOL
 
@@ -180,8 +226,8 @@ The Driver and Licence Information status reflects only whether the licence
 was unexpired on the accident date. It does not establish vehicle-class
 compatibility.
 
-Do not claim licence-vehicle compatibility unless the extracted data explicitly
-supports the comparison.
+Do not claim licence-vehicle compatibility unless the extracted data
+explicitly supports the comparison.
 
 INVESTIGATION AREAS
 
@@ -263,13 +309,17 @@ MISSING INFORMATION
 Only include genuinely missing information that is materially relevant to
 further investigation.
 
+Do not list information as missing if it is explicitly available in the
+current extracted claim data.
+
 CONTRADICTIONS
 
 Only include actual contradictions between available evidence.
 
-If there are none, return an empty list.
+If the current evidence contains conflicting information that cannot be
+resolved, include it in contradictions.
 
-{reviewer_context}
+If there are no contradictions, return an empty list.
 
 EXTRACTED CLAIM DATA
 

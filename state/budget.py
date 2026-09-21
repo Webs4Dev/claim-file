@@ -47,11 +47,15 @@ def can_make_model_call(
 
 def max_output_tokens(
     state: ClaimState,
-    reserve_tokens: int = 500,
+    reserve_ratio: float = 0.20,
 ) -> int:
     remaining = tokens_remaining(state)
 
-    allowed = remaining - reserve_tokens
+    reserve = int(
+        remaining * reserve_ratio
+    )
+
+    allowed = remaining - reserve
 
     return max(
         allowed,

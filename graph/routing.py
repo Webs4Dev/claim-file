@@ -10,6 +10,9 @@ def route_supervisor(
     if budget_exceeded(state):
         return END
 
+    if state.status == "waiting_for_documents":
+        return END
+
     if state.current_agent == "extractor":
         return "extractor"
 
