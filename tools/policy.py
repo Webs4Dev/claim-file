@@ -3,7 +3,7 @@ import json
 from policy.retrieval import retrieve_policy_chunks
 
 
-def search_tata_aig_policy(
+def search_policy(
     query: str,
     product: str,
 ) -> str:
@@ -15,7 +15,10 @@ def search_tata_aig_policy(
 
     formatted_results = []
 
-    for index, result in enumerate(results, start=1):
+    for index, result in enumerate(
+        results,
+        start=1,
+    ):
         formatted_results.append(
             {
                 "result_number": index,
@@ -38,15 +41,16 @@ def search_tata_aig_policy(
 
 POLICY_SEARCH_TOOL = {
     "type": "function",
-    "name": "search_tata_aig_policy",
+    "name": "search_policy",
     "description": (
-        "Search the Tata AIG motor insurance policy knowledge base "
+        "Search the configured motor insurance policy knowledge base "
         "for authoritative policy evidence. "
+        "The knowledge base contains the policy documents applicable "
+        "to this ClaimFile deployment. "
         "Use this tool only when a specific policy question needs "
         "verification. "
         "Ask one focused policy question per search. "
         "Prioritize the most important unresolved policy issue. "
-        "The tool returns the most relevant policy evidence. "
         "Do not rely on general insurance knowledge when policy "
         "evidence can be retrieved from this tool."
     ),
@@ -64,9 +68,9 @@ POLICY_SEARCH_TOOL = {
             "product": {
                 "type": "string",
                 "description": (
-                    "The Tata AIG motor insurance product to search. "
-                    "Use 'private_car' for Tata AIG Private Car "
-                    "policies."
+                    "The motor insurance product whose policy "
+                    "documents are stored in the configured "
+                    "knowledge base."
                 ),
             },
         },
