@@ -239,6 +239,9 @@ class ClaimState(BaseModel):
     claim_documents: list[ClaimDocument] = Field(
         default_factory=list
     )
+    pending_documents: list[RequiredDocument] = Field(
+        default_factory=list
+    )
     extracted_data: ClaimExtraction | None = None
     document_validation: DocumentValidationResult | None = None
     investigation: InvestigationResult | None = None

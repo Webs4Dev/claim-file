@@ -2,12 +2,19 @@ from pathlib import Path
 from uuid import uuid4
 import json
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+)
 
 from approval.human_gate import (
     approve_claim,
     reject_claim,
 )
+from graph.workflow import app
 from state.schema import (
     ClaimDocument,
     ClaimForm,
@@ -17,12 +24,12 @@ from state.store import (
     load_claim,
     save_claim,
 )
-from graph.workflow import app
 
 
 UPLOAD_DIRECTORY = Path(
     "data/uploads"
 )
+
 
 UPLOAD_DIRECTORY.mkdir(
     parents=True,
@@ -71,11 +78,16 @@ def parse_claim_form(
     claim_form: str,
 ) -> ClaimForm:
     try:
-        data = json.loads(claim_form)
+        data = json.loads(
+            claim_form
+        )
     except json.JSONDecodeError as error:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid claim_form JSON: {error}",
+            detail=(
+                f"Invalid claim_form JSON: "
+                f"{error}"
+            ),
         )
 
     try:
@@ -85,7 +97,10 @@ def parse_claim_form(
     except Exception as error:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid claim form: {error}",
+            detail=(
+                f"Invalid claim form: "
+                f"{error}"
+            ),
         )
 
 
@@ -108,10 +123,48 @@ def parse_document_types(
     if not isinstance(values, list):
         raise HTTPException(
             status_code=400,
-            detail="document_types must be a JSON list.",
+            detail=(
+                "document_types must be a JSON list."
+            ),
         )
 
     return values
+
+
+def validate_requested_documents(
+    claim: ClaimState,
+    document_types: list[str],
+) -> None:
+    requested_types = {
+        document.document_type
+        for document in claim.pending_documents
+    }
+
+    for document_type in document_types:
+        if document_type not in requested_types:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Document type '{document_type}' "
+                    f"was not requested for this claim."
+                ),
+            )
+
+
+def clear_uploaded_document_requests(
+    claim: ClaimState,
+    uploaded_types: list[str],
+) -> None:
+    uploaded_type_set = set(
+        uploaded_types
+    )
+
+    claim.pending_documents = [
+        document
+        for document in claim.pending_documents
+        if document.document_type
+        not in uploaded_type_set
+    ]
 
 
 @api.get(
@@ -271,29 +324,24 @@ def upload_documents(
             ),
         )
 
+    validate_requested_documents(
+        claim,
+        types,
+    )
+
     for document_type, file in zip(
         types,
         files,
     ):
-        try:
-            document = ClaimDocument(
-                document_type=document_type,
-                uploaded=True,
-                required=True,
-            )
-        except Exception as error:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Invalid document type "
-                    f"{document_type}: {error}"
-                ),
-            )
-
-        document.file_path = save_uploaded_file(
-            claim_id,
-            document_type,
-            file,
+        document = ClaimDocument(
+            document_type=document_type,
+            file_path=save_uploaded_file(
+                claim_id,
+                document_type,
+                file,
+            ),
+            uploaded=True,
+            required=True,
         )
 
         claim.documents.append(
@@ -303,6 +351,11 @@ def upload_documents(
         claim.claim_documents.append(
             document
         )
+
+    clear_uploaded_document_requests(
+        claim,
+        types,
+    )
 
     claim.document_validation = None
     claim.extracted_data = None

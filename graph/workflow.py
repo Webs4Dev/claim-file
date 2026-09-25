@@ -56,8 +56,19 @@ def supervisor(
         return state
 
     if state.review.status == "NEEDS_INVESTIGATION":
-        state.status = "waiting_for_documents"
-        state.current_agent = "supervisor"
+        state.pending_documents = (
+            state.review.required_documents
+        )
+
+        if state.pending_documents:
+            state.status = "waiting_for_documents"
+            state.current_agent = "supervisor"
+
+            return state
+
+        state.review = None
+        state.current_agent = "investigator"
+        state.status = "in_progress"
 
         return state
 
