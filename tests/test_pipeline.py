@@ -108,17 +108,74 @@ def run_test_pipeline() -> ClaimState:
         claim_documents=DOCUMENTS,
     )
 
-    result = app.invoke(
-        state
+    result = app.invoke(state)
+
+    return ClaimState.model_validate(result)
+
+
+def print_workflow_trace(
+    state: ClaimState,
+) -> None:
+    print()
+    print("=" * 60)
+    print("WORKFLOW TRACE")
+    print("=" * 60)
+
+    for item in state.workflow_trace:
+        print(
+            f"STEP {item['step']}: "
+            f"{item['node']}"
+        )
+        print(
+            f"  Status: {item['status']}"
+        )
+        print(
+            f"  Current agent: "
+            f"{item['current_agent']}"
+        )
+        print()
+
+
+def validate_expected_result(
+    state: ClaimState,
+) -> None:
+    print("=" * 60)
+    print("FINAL RESULT")
+    print("=" * 60)
+
+    print("STATUS:", state.status)
+    print("STEP COUNT:", state.step_count)
+    print("TOKEN USAGE:", state.token_usage)
+    print("ESTIMATED COST:", state.estimated_cost)
+
+    if state.review:
+        print(
+            "REVIEW STATUS:",
+            state.review.status,
+        )
+
+    print(
+        "PENDING DOCUMENTS:",
+        [
+            document.document_type
+            for document in state.pending_documents
+        ],
     )
 
-    return ClaimState.model_validate(
-        result
-    )
+    print_workflow_trace(state)
 
 
 if __name__ == "__main__":
     final_state = run_test_pipeline()
+
+    validate_expected_result(
+        final_state
+    )
+
+    print()
+    print("=" * 60)
+    print("FULL FINAL STATE")
+    print("=" * 60)
 
     print(
         json.dumps(

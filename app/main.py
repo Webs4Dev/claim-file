@@ -1,5 +1,6 @@
 from pathlib import Path
 from uuid import uuid4
+
 import json
 
 from fastapi import (
@@ -30,7 +31,6 @@ UPLOAD_DIRECTORY = Path(
     "data/uploads"
 )
 
-
 UPLOAD_DIRECTORY.mkdir(
     parents=True,
     exist_ok=True,
@@ -42,6 +42,20 @@ api = FastAPI(
     description="Motor insurance claim processing API",
     version="1.0.0",
 )
+
+
+SUPPORTED_DOCUMENT_FIELDS = {
+    "policy_schedule": "policy_schedule",
+    "policy_document": "policy_document",
+    "vehicle_registration": "vehicle_registration",
+    "driving_license": "driving_license",
+    "damage_survey_report": "damage_survey_report",
+    "repair_estimate": "repair_estimate",
+    "repair_invoice": "repair_invoice",
+    "police_report": "police_report",
+    "fir_document": "fir_document",
+    "accident_report": "accident_report",
+}
 
 
 def save_uploaded_file(
@@ -60,7 +74,7 @@ def save_uploaded_file(
 
     extension = Path(
         file.filename or ""
-    ).suffix
+    ).suffix.lower()
 
     file_path = (
         claim_directory
@@ -104,43 +118,84 @@ def parse_claim_form(
         )
 
 
-def parse_document_types(
-    document_types: str,
-) -> list[str]:
-    try:
-        values = json.loads(
-            document_types
-        )
-    except json.JSONDecodeError as error:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Invalid document_types JSON: "
-                f"{error}"
-            ),
-        )
+def collect_uploaded_documents(
+    policy_schedule: UploadFile | None,
+    policy_document: UploadFile | None,
+    vehicle_registration: UploadFile | None,
+    driving_license: UploadFile | None,
+    damage_survey_report: UploadFile | None,
+    repair_estimate: UploadFile | None,
+    repair_invoice: UploadFile | None,
+    police_report: UploadFile | None,
+    fir_document: UploadFile | None,
+    accident_report: UploadFile | None,
+) -> list[tuple[str, UploadFile]]:
+    uploads = [
+        (
+            "policy_schedule",
+            policy_schedule,
+        ),
+        (
+            "policy_document",
+            policy_document,
+        ),
+        (
+            "vehicle_registration",
+            vehicle_registration,
+        ),
+        (
+            "driving_license",
+            driving_license,
+        ),
+        (
+            "damage_survey_report",
+            damage_survey_report,
+        ),
+        (
+            "repair_estimate",
+            repair_estimate,
+        ),
+        (
+            "repair_invoice",
+            repair_invoice,
+        ),
+        (
+            "police_report",
+            police_report,
+        ),
+        (
+            "fir_document",
+            fir_document,
+        ),
+        (
+            "accident_report",
+            accident_report,
+        ),
+    ]
 
-    if not isinstance(values, list):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "document_types must be a JSON list."
-            ),
+    return [
+        (
+            document_type,
+            file,
         )
-
-    return values
+        for document_type, file in uploads
+        if file is not None
+        and file.filename
+    ]
 
 
 def validate_requested_documents(
     claim: ClaimState,
-    document_types: list[str],
+    uploaded_documents: list[
+        tuple[str, UploadFile]
+    ],
 ) -> None:
     requested_types = {
         document.document_type
         for document in claim.pending_documents
     }
 
-    for document_type in document_types:
+    for document_type, _ in uploaded_documents:
         if document_type not in requested_types:
             raise HTTPException(
                 status_code=400,
@@ -149,6 +204,29 @@ def validate_requested_documents(
                     f"was not requested for this claim."
                 ),
             )
+
+
+def remove_existing_document(
+    claim: ClaimState,
+    document_type: str,
+) -> None:
+    existing_documents = []
+
+    for document in claim.claim_documents:
+        if document.document_type != document_type:
+            existing_documents.append(
+                document
+            )
+
+    claim.claim_documents = existing_documents
+
+    claim.documents = [
+        path
+        for path in claim.documents
+        if not Path(path).stem.startswith(
+            document_type
+        )
+    ]
 
 
 def clear_uploaded_document_requests(
@@ -181,23 +259,43 @@ def health_check():
 )
 def create_claim(
     claim_form: str = Form(...),
-    document_types: str = Form(...),
-    files: list[UploadFile] = File(...),
+
+    policy_schedule: UploadFile | None = File(None),
+    policy_document: UploadFile | None = File(None),
+    vehicle_registration: UploadFile | None = File(None),
+    driving_license: UploadFile | None = File(None),
+    damage_survey_report: UploadFile | None = File(None),
+    repair_estimate: UploadFile | None = File(None),
+    repair_invoice: UploadFile | None = File(None),
+    police_report: UploadFile | None = File(None),
+    fir_document: UploadFile | None = File(None),
+    accident_report: UploadFile | None = File(None),
 ):
     form = parse_claim_form(
         claim_form
     )
 
-    types = parse_document_types(
-        document_types
+    uploaded_documents = (
+        collect_uploaded_documents(
+            policy_schedule,
+            policy_document,
+            vehicle_registration,
+            driving_license,
+            damage_survey_report,
+            repair_estimate,
+            repair_invoice,
+            police_report,
+            fir_document,
+            accident_report,
+        )
     )
 
-    if len(types) != len(files):
+    if not uploaded_documents:
         raise HTTPException(
             status_code=400,
             detail=(
-                "The number of document_types "
-                "must match the number of files."
+                "At least one document must "
+                "be uploaded."
             ),
         )
 
@@ -207,10 +305,7 @@ def create_claim(
 
     documents = []
 
-    for document_type, file in zip(
-        types,
-        files,
-    ):
+    for document_type, file in uploaded_documents:
         try:
             document = ClaimDocument(
                 document_type=document_type,
@@ -227,10 +322,12 @@ def create_claim(
                 ),
             )
 
-        document.file_path = save_uploaded_file(
-            claim_id,
-            document_type,
-            file,
+        document.file_path = (
+            save_uploaded_file(
+                claim_id,
+                document_type,
+                file,
+            )
         )
 
         documents.append(
@@ -289,8 +386,17 @@ def get_claim(
 )
 def upload_documents(
     claim_id: str,
-    document_types: str = Form(...),
-    files: list[UploadFile] = File(...),
+
+    policy_schedule: UploadFile | None = File(None),
+    policy_document: UploadFile | None = File(None),
+    vehicle_registration: UploadFile | None = File(None),
+    driving_license: UploadFile | None = File(None),
+    damage_survey_report: UploadFile | None = File(None),
+    repair_estimate: UploadFile | None = File(None),
+    repair_invoice: UploadFile | None = File(None),
+    police_report: UploadFile | None = File(None),
+    fir_document: UploadFile | None = File(None),
+    accident_report: UploadFile | None = File(None),
 ):
     claim = load_claim(
         claim_id
@@ -311,50 +417,71 @@ def upload_documents(
             ),
         )
 
-    types = parse_document_types(
-        document_types
+    uploaded_documents = (
+        collect_uploaded_documents(
+            policy_schedule,
+            policy_document,
+            vehicle_registration,
+            driving_license,
+            damage_survey_report,
+            repair_estimate,
+            repair_invoice,
+            police_report,
+            fir_document,
+            accident_report,
+        )
     )
 
-    if len(types) != len(files):
+    if not uploaded_documents:
         raise HTTPException(
             status_code=400,
             detail=(
-                "The number of document_types "
-                "must match the number of files."
+                "Upload at least one of the "
+                "requested documents."
             ),
         )
 
     validate_requested_documents(
         claim,
-        types,
+        uploaded_documents,
     )
 
-    for document_type, file in zip(
-        types,
-        files,
-    ):
+    uploaded_types = []
+
+    for document_type, file in uploaded_documents:
+        remove_existing_document(
+            claim,
+            document_type,
+        )
+
+        file_path = save_uploaded_file(
+            claim_id,
+            document_type,
+            file,
+        )
+
         document = ClaimDocument(
             document_type=document_type,
-            file_path=save_uploaded_file(
-                claim_id,
-                document_type,
-                file,
-            ),
+            file_path=file_path,
             uploaded=True,
             required=True,
         )
 
         claim.documents.append(
-            document.file_path
+            file_path
         )
 
         claim.claim_documents.append(
             document
         )
 
+        uploaded_types.append(
+            document_type
+        )
+
     clear_uploaded_document_requests(
         claim,
-        types,
+        uploaded_types,
     )
 
     claim.document_validation = None
