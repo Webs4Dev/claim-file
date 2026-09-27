@@ -251,3 +251,4 @@ class ClaimState(BaseModel):
     step_count: int = 0
     token_usage: int = 0
     estimated_cost: float = 0.0
+    workflow_trace: list[dict] = Field(default_factory=list)

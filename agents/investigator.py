@@ -809,6 +809,13 @@ def _execute_policy_tool(
         "product"
     )
 
+    print()
+    print("=" * 70)
+    print("POLICY SEARCH")
+    print("=" * 70)
+    print("QUERY:", query)
+    print("PRODUCT:", product)
+
     if not isinstance(query, str) or not query.strip():
         raise ValueError(
             "Policy tool query is required"
