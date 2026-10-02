@@ -117,6 +117,7 @@ def normalize_time(
                 value,
                 time_format,
             )
+
             return parsed.strftime("%H:%M")
         except ValueError:
             continue
@@ -134,8 +135,10 @@ def calculate_policy_validity(
         return "INSUFFICIENT_EVIDENCE"
 
     try:
-        start, end = extraction.policy.insurance_period.split(
-            " to "
+        start, end = (
+            extraction.policy.insurance_period.split(
+                " to "
+            )
         )
     except ValueError:
         return "INSUFFICIENT_EVIDENCE"
@@ -189,7 +192,9 @@ def build_document_validation_context(
     state: ClaimState,
 ) -> str:
     if state.document_validation is None:
-        return "No document validation result is available."
+        return (
+            "No document validation result is available."
+        )
 
     return state.document_validation.model_dump_json(
         indent=2
@@ -229,8 +234,10 @@ This is the initial investigation of the claim.
         indent=2
     )
 
-    document_validation = build_document_validation_context(
-        state
+    document_validation = (
+        build_document_validation_context(
+            state
+        )
     )
 
     previous_review = ""
@@ -254,7 +261,7 @@ Investigate using:
 
 Do not perform document extraction.
 
-Do not verify legal authenticity.
+Do not verify document authenticity.
 
 Do not invent facts.
 
@@ -266,14 +273,12 @@ DOCUMENT VALIDATION
 
 VALID documents may be used as supporting evidence.
 
-UNVERIFIED documents may be used for factual consistency,
-cross-document comparison, and identifying contradictions,
-but their authenticity is not established.
-
 INVALID documents must not be treated as reliable evidence.
 
-Do not automatically request another document because a document
-is UNVERIFIED.
+Use the validated document information when evaluating the claim.
+
+Do not request another document merely because an existing
+document has been validated as VALID.
 
 POLICY SEARCH
 
@@ -297,8 +302,10 @@ These two statuses are computed by the system and must not be
 overridden.
 
 The licence status only checks whether the licence was unexpired
-on the accident date. Do not infer vehicle-class compatibility
-from the vehicle make or model.
+on the accident date.
+
+Do not infer vehicle-class compatibility from the vehicle make
+or model.
 
 DETERMINISTIC CONSISTENCY CHECKS
 
@@ -360,40 +367,80 @@ POLICY VALIDITY
 
 Use the deterministic Policy Validity status.
 
+Consider:
+
+- policy number
+- insurance period
+- accident date
+- policy wording when relevant
+
 DRIVER AND LICENCE INFORMATION
 
 Use the deterministic Driver and Licence Information status.
+
+Consider:
+
+- driver identity
+- licence number
+- licence expiry date
+- authorized vehicle types
 
 Do not claim vehicle-class compatibility unless the evidence
 explicitly supports it.
 
 VEHICLE INFORMATION
 
-Compare registration number, make, model, and vehicle identity.
+Compare:
 
-If sources agree but a document is UNVERIFIED, describe the
-information as consistent but not independently verified.
+- registration number
+- make
+- model
+- vehicle identity
+- consistency between submitted sources
+
+If the available sources agree, treat the information as
+consistent.
 
 ACCIDENT INFORMATION
 
-Compare accident date, time, location, and description.
+Compare:
+
+- accident date
+- accident time
+- accident location
+- accident description
 
 Use deterministic checks for date and time.
 
-Use contextual reasoning for location and description.
+Use the available evidence for location and description.
+
+Do not invent accident circumstances.
 
 DAMAGE INFORMATION
 
-Compare claimed damage, survey findings, repair estimate,
-and repair amount.
+Compare:
 
-Do not treat UNVERIFIED documents as authenticated.
+- claimed damage
+- survey findings
+- repair estimate
+- repair amount
+
+Check for material inconsistencies between these sources.
+
+Do not determine whether the repair amount is reasonable unless
+the available policy evidence specifically makes that relevant.
 
 THIRD-PARTY INVOLVEMENT
 
 Use only the available evidence.
 
+Compare the claim form and supporting evidence.
+
+Do not infer third-party involvement without evidence.
+
 POLICE/FIR INFORMATION
+
+Use the available evidence.
 
 Do not mark this category VALID merely because the claim says
 there was no FIR.
@@ -401,7 +448,7 @@ there was no FIR.
 Do not invent a legal requirement for an FIR.
 
 Use INSUFFICIENT_EVIDENCE when the available evidence cannot
-establish whether police/FIR reporting was required.
+establish an important police/FIR fact.
 
 OVERALL STATUS
 
@@ -412,8 +459,8 @@ INVALID when a validity problem is established.
 CONCERN when further investigation is required but invalidity
 is not established.
 
-INSUFFICIENT_EVIDENCE when an important determination cannot
-be made from the available evidence.
+INSUFFICIENT_EVIDENCE when an important determination cannot be
+made from the available evidence.
 
 VALID only when the evidence is sufficient across the
 investigated areas and no validity problem is identified.
@@ -422,8 +469,7 @@ MISSING INFORMATION
 
 Only include materially relevant missing information.
 
-Do not call UNVERIFIED authenticity "missing information" unless
-independent verification is materially required.
+A missing optional field is not automatically material.
 
 CONTRADICTIONS
 
@@ -526,7 +572,9 @@ def _deduplicate_findings(
         if finding.category not in unique_findings:
             unique_findings[finding.category] = finding
 
-    return list(unique_findings.values())
+    return list(
+        unique_findings.values()
+    )
 
 
 def _add_missing_information(
@@ -556,10 +604,18 @@ def _check_value_consistency(
     field_name: str,
     normalizer,
 ) -> None:
-    claim_normalized = normalizer(claim_value)
-    extracted_normalized = normalizer(extracted_value)
+    claim_normalized = normalizer(
+        claim_value
+    )
 
-    if claim_normalized and extracted_normalized:
+    extracted_normalized = normalizer(
+        extracted_value
+    )
+
+    if (
+        claim_normalized
+        and extracted_normalized
+    ):
         if claim_normalized != extracted_normalized:
             _add_contradiction(
                 investigation,
@@ -571,7 +627,10 @@ def _check_value_consistency(
                 ),
             )
 
-    elif claim_normalized and not extracted_normalized:
+    elif (
+        claim_normalized
+        and not extracted_normalized
+    ):
         _add_missing_information(
             investigation,
             (
@@ -589,11 +648,19 @@ def _check_date_consistency(
     field_name: str,
 ) -> None:
     if claim_value and extracted_value:
-        claim_date = parse_date(claim_value)
-        extracted_date = parse_date(extracted_value)
+        claim_date = parse_date(
+            claim_value
+        )
+
+        extracted_date = parse_date(
+            extracted_value
+        )
 
         if claim_date and extracted_date:
-            if claim_date.date() != extracted_date.date():
+            if (
+                claim_date.date()
+                != extracted_date.date()
+            ):
                 _add_contradiction(
                     investigation,
                     (
@@ -603,6 +670,7 @@ def _check_date_consistency(
                         f"extracted='{extracted_value}'."
                     ),
                 )
+
             return
 
     _check_value_consistency(
@@ -610,7 +678,7 @@ def _check_date_consistency(
         claim_value,
         extracted_value,
         field_name,
-        lambda value: normalize_text(value),
+        normalize_text,
     )
 
 
@@ -620,11 +688,22 @@ def _check_time_consistency(
     extracted_value: str | None,
     field_name: str,
 ) -> None:
-    claim_normalized = normalize_time(claim_value)
-    extracted_normalized = normalize_time(extracted_value)
+    claim_normalized = normalize_time(
+        claim_value
+    )
 
-    if claim_normalized and extracted_normalized:
-        if claim_normalized != extracted_normalized:
+    extracted_normalized = normalize_time(
+        extracted_value
+    )
+
+    if (
+        claim_normalized
+        and extracted_normalized
+    ):
+        if (
+            claim_normalized
+            != extracted_normalized
+        ):
             _add_contradiction(
                 investigation,
                 (
@@ -635,7 +714,10 @@ def _check_time_consistency(
                 ),
             )
 
-    elif claim_normalized and not extracted_normalized:
+    elif (
+        claim_normalized
+        and not extracted_normalized
+    ):
         _add_missing_information(
             investigation,
             (
@@ -726,8 +808,10 @@ def _enforce_deterministic_status(
     license_status: InvestigationStatus,
     extraction: ClaimExtraction,
 ) -> None:
-    investigation.findings = _deduplicate_findings(
-        investigation.findings
+    investigation.findings = (
+        _deduplicate_findings(
+            investigation.findings
+        )
     )
 
     overrides = {
@@ -742,7 +826,9 @@ def _enforce_deterministic_status(
 
     for category, status in overrides.items():
         if category in findings_by_category:
-            findings_by_category[category].status = status
+            findings_by_category[
+                category
+            ].status = status
         else:
             investigation.findings.append(
                 _create_deterministic_finding(
@@ -809,19 +895,18 @@ def _execute_policy_tool(
         "product"
     )
 
-    print()
-    print("=" * 70)
-    print("POLICY SEARCH")
-    print("=" * 70)
-    print("QUERY:", query)
-    print("PRODUCT:", product)
-
-    if not isinstance(query, str) or not query.strip():
+    if not isinstance(
+        query,
+        str,
+    ) or not query.strip():
         raise ValueError(
             "Policy tool query is required"
         )
 
-    if not isinstance(product, str) or not product.strip():
+    if not isinstance(
+        product,
+        str,
+    ) or not product.strip():
         raise ValueError(
             "Policy tool product is required"
         )
@@ -960,11 +1045,13 @@ INSUFFICIENT_EVIDENCE
 Use these deterministic statuses exactly:
 
 Policy Validity: {policy_status}
+
 Driver and Licence Information: {license_status}
 
 Use the evidence below.
 
 Keep every finding concise:
+
 - finding: one or two short sentences
 - evidence: one or two short sentences
 
@@ -972,31 +1059,38 @@ Do not invent facts.
 
 Do not infer fraud.
 
-Do not claim document authenticity when a document is UNVERIFIED.
-
 Do not invent policy requirements.
 
 Do not make a payout or approval decision.
 
 For missing_information:
+
 include only material missing information.
 
 For contradictions:
+
 include only actual contradictions.
 
 Overall status:
+
 - INVALID if a validity problem is established.
-- CONCERN if further investigation is needed without established invalidity.
-- INSUFFICIENT_EVIDENCE if an important determination cannot be made.
-- VALID only when evidence is sufficient and no validity problem exists.
+- CONCERN if further investigation is needed without
+  established invalidity.
+- INSUFFICIENT_EVIDENCE if an important determination
+  cannot be made.
+- VALID only when evidence is sufficient and no validity
+  problem exists.
 
 CLAIM FORM:
+
 {state.claim_form.model_dump_json()}
 
 DOCUMENT VALIDATION:
+
 {build_document_validation_context(state)}
 
 EXTRACTED DATA:
+
 {extraction.model_dump_json()}
 
 {evidence_text}
@@ -1018,8 +1112,8 @@ Return only the structured InvestigationResult.
             {
                 "role": "system",
                 "content": (
-                    "Return a concise structured motor insurance "
-                    "investigation result."
+                    "Return a concise structured motor "
+                    "insurance investigation result."
                 ),
             },
             {
@@ -1085,6 +1179,7 @@ def investigate_claim(
         state.status = "budget_exceeded"
         state.current_agent = "supervisor"
         state.step_count += 1
+
         return state
 
     _apply_deterministic_consistency_checks(

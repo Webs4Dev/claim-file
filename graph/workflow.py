@@ -45,6 +45,12 @@ def supervisor(
     if state.status == "human_approval":
         return state
 
+    if state.status == "complete":
+        return state
+
+    if state.status == "terminated":
+        return state
+
     if state.document_validation is None:
         state.current_agent = "validator"
         state.status = "in_progress"
@@ -78,9 +84,8 @@ def supervisor(
             state.current_agent = "supervisor"
             return state
 
-        state.review = None
-        state.current_agent = "investigator"
-        state.status = "in_progress"
+        state.status = "human_approval"
+        state.current_agent = "supervisor"
         return state
 
     if state.review.status == "APPROVED":

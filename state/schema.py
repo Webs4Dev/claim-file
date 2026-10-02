@@ -59,7 +59,6 @@ DocumentType = Literal[
 DocumentValidity = Literal[
     "VALID",
     "INVALID",
-    "UNVERIFIED",
 ]
 
 
@@ -171,11 +170,6 @@ class DocumentValidationResult(BaseModel):
     invalid_documents: list[DocumentType] = Field(
         default_factory=list
     )
-
-    unverified_documents: list[DocumentType] = Field(
-        default_factory=list
-    )
-
 
 class InvestigationFinding(BaseModel):
     category: InvestigationCategory
