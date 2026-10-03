@@ -21,17 +21,32 @@ def main():
             top_k=5,
         )
 
-        for index, result in enumerate(results, start=1):
+        for index, result in enumerate(
+            results,
+            start=1,
+        ):
             print(f"\nRESULT {index}")
             print(f"Source: {result['source']}")
-            print(f"Document type: {result['document_type']}")
+            print(
+                f"Document type: "
+                f"{result['document_type']}"
+            )
             print(
                 f"Pages: "
-                f"{result['page_start']}-{result['page_end']}"
+                f"{result['page_start']}-"
+                f"{result['page_end']}"
             )
-            print(f"Section: {result['section']}")
-            print(f"Distance: {result['distance']}")
-            print(f"\n{result['text']}")
+            print(
+                f"Section: "
+                f"{result['section']}"
+            )
+            print(
+                f"BM25 score: "
+                f"{result.get('bm25_score', 0.0):.4f}"
+            )
+            print(
+                f"\n{result['text']}"
+            )
 
 
 if __name__ == "__main__":
