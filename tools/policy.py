@@ -29,7 +29,6 @@ def search_policy(
                 "page_end": result["page_end"],
                 "section": result["section"],
                 "text": result["text"],
-                "distance": result["distance"],
             }
         )
 

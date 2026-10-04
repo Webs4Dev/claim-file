@@ -3,6 +3,7 @@ from openai import OpenAI
 from config import OPENAI_API_KEY
 from policy.bm25 import search_bm25
 from policy.index import get_collection
+from policy.reranker import rerank_policy_chunks
 
 
 client = OpenAI(
@@ -43,6 +44,7 @@ STOP_WORDS = {
     "can",
 }
 
+
 IMPORTANT_TERMS = {
     "covered",
     "coverage",
@@ -74,6 +76,7 @@ IMPORTANT_TERMS = {
     "deductible",
 }
 
+
 COVERAGE_TERMS = {
     "covered",
     "coverage",
@@ -92,6 +95,7 @@ COVERAGE_TERMS = {
     "vehicle",
 }
 
+
 POLICY_SECTION_TERMS = {
     "what is covered",
     "what is not covered",
@@ -101,6 +105,7 @@ POLICY_SECTION_TERMS = {
     "coverage conditions",
     "conditions during the contract",
 }
+
 
 INTENT_TERMS = {
     "own_damage": {
@@ -161,12 +166,143 @@ INTENT_TERMS = {
 }
 
 
+SCOPE_TERMS = {
+    "own_damage": {
+        "section i",
+        "own damage",
+        "own-damage",
+        "loss or damage",
+        "insured vehicle",
+        "vehicle insured",
+    },
+    "third_party": {
+        "section ii",
+        "third party",
+        "third-party",
+        "liability",
+        "bodily injury",
+        "property damage",
+    },
+    "personal_accident": {
+        "section iii",
+        "personal accident",
+        "owner-driver",
+        "owner driver",
+    },
+    "idv": {
+        "insured declared value",
+        "idv",
+        "total loss",
+        "constructive total loss",
+        "ctl",
+        "tl",
+    },
+    "claim_conditions": {
+        "general conditions",
+        "conditions during the contract",
+        "duties and obligations",
+        "claim",
+        "notification",
+        "reasonable care",
+    },
+    "theft": {
+        "theft",
+        "stolen",
+        "burglary",
+        "section i",
+    },
+    "driver": {
+        "driver",
+        "driving licence",
+        "driving license",
+        "authorized driver",
+        "licence",
+        "license",
+    },
+    "deductible": {
+        "deductible",
+        "excess",
+        "policy schedule",
+    },
+    "repair": {
+        "repair",
+        "replacement",
+        "workshop",
+        "garage",
+    },
+    "police": {
+        "police",
+        "fir",
+        "report",
+        "complaint",
+    },
+}
+
+
+SCOPE_PREFERENCES = {
+    "own_damage": {
+        "own_damage": 1.00,
+        "theft": 0.75,
+        "claim_conditions": 0.45,
+        "deductible": 0.40,
+        "repair": 0.35,
+        "idv": 0.25,
+        "third_party": -0.55,
+        "personal_accident": -0.45,
+    },
+    "third_party": {
+        "third_party": 1.00,
+        "claim_conditions": 0.40,
+        "own_damage": -0.55,
+        "personal_accident": -0.45,
+    },
+    "theft": {
+        "theft": 1.00,
+        "own_damage": 0.65,
+        "claim_conditions": 0.45,
+        "idv": 0.35,
+        "third_party": -0.55,
+        "personal_accident": -0.45,
+    },
+    "driver": {
+        "driver": 1.00,
+        "claim_conditions": 0.40,
+        "own_damage": 0.20,
+        "third_party": 0.20,
+    },
+    "deductible": {
+        "deductible": 1.00,
+        "own_damage": 0.45,
+        "claim_conditions": 0.30,
+        "idv": 0.20,
+    },
+    "idv": {
+        "idv": 1.00,
+        "own_damage": 0.40,
+        "theft": 0.35,
+        "claim_conditions": 0.20,
+    },
+    "repair": {
+        "repair": 1.00,
+        "own_damage": 0.55,
+        "claim_conditions": 0.30,
+    },
+    "police": {
+        "police": 1.00,
+        "claim_conditions": 0.45,
+        "theft": 0.30,
+        "own_damage": 0.20,
+    },
+}
+
+
 def create_query_embedding(
     query: str,
 ) -> list[float]:
-
     if not query.strip():
-        raise ValueError("Query cannot be empty")
+        raise ValueError(
+            "Query cannot be empty"
+        )
 
     response = client.embeddings.create(
         model="text-embedding-3-small",
@@ -179,7 +315,6 @@ def create_query_embedding(
 def tokenize(
     text: str,
 ) -> list[str]:
-
     tokens = []
 
     for word in text.split():
@@ -193,15 +328,38 @@ def tokenize(
     return tokens
 
 
+def normalize_text(
+    text: str,
+) -> str:
+    return " ".join(
+        tokenize(text)
+    )
+
+
 def detect_query_intent(
     query: str,
 ) -> str:
-
     query_tokens = {
         token
         for token in tokenize(query)
         if token not in STOP_WORDS
     }
+
+    query_text = normalize_text(query)
+
+    if (
+        "third party" in query_text
+        or "third-party" in query_text
+        or "liability" in query_tokens
+    ):
+        return "third_party"
+
+    if (
+        "personal accident" in query_text
+        or "owner driver" in query_text
+        or "owner-driver" in query_text
+    ):
+        return "personal_accident"
 
     best_intent = "general"
     best_score = 0
@@ -218,12 +376,94 @@ def detect_query_intent(
     return best_intent
 
 
+def detect_scope(
+    query: str,
+    intent: str,
+) -> str:
+    query_text = normalize_text(query)
+
+    if (
+        "personal accident" in query_text
+        or "owner driver" in query_text
+        or "owner-driver" in query_text
+    ):
+        return "personal_accident"
+
+    if (
+        "third party" in query_text
+        or "third-party" in query_text
+        or "third party liability" in query_text
+    ):
+        return "third_party"
+
+    if (
+        "insured declared value" in query_text
+        or "idv" in query_text
+        or "constructive total loss" in query_text
+        or "total loss" in query_text
+    ):
+        return "idv"
+
+    if (
+        "deductible" in query_text
+        or "excess" in query_text
+    ):
+        return "deductible"
+
+    if (
+        "driving licence" in query_text
+        or "driving license" in query_text
+        or "authorized driver" in query_text
+        or "authorised driver" in query_text
+    ):
+        return "driver"
+
+    if (
+        "police" in query_text
+        or "fir" in query_text
+        or "first information report" in query_text
+    ):
+        return "police"
+
+    if (
+        "repair" in query_text
+        or "replacement" in query_text
+        or "workshop" in query_text
+        or "garage" in query_text
+    ):
+        return "repair"
+
+    if (
+        "theft" in query_text
+        or "stolen" in query_text
+        or "burglary" in query_text
+    ):
+        return "theft"
+
+    if (
+        "condition" in query_text
+        or "conditions" in query_text
+        or "claim procedure" in query_text
+        or "claim process" in query_text
+        or "notify" in query_text
+        or "notification" in query_text
+    ):
+        return "claim_conditions"
+
+    if intent == "own_damage":
+        return "own_damage"
+
+    if intent in SCOPE_TERMS:
+        return intent
+
+    return "general"
+
+
 def calculate_keyword_score(
     query: str,
     text: str,
     section: str | None,
 ) -> float:
-
     query_tokens = [
         token
         for token in tokenize(query)
@@ -272,7 +512,10 @@ def calculate_keyword_score(
             / len(query_tokens)
         )
 
-    return min(score, 1.0)
+    return min(
+        score,
+        1.0,
+    )
 
 
 def calculate_phrase_score(
@@ -280,23 +523,24 @@ def calculate_phrase_score(
     text: str,
     section: str | None,
 ) -> float:
-
-    query_normalized = " ".join(
-        tokenize(query)
+    query_normalized = normalize_text(
+        query
     )
 
-    text_normalized = " ".join(
-        tokenize(text)
+    text_normalized = normalize_text(
+        text
     )
 
-    section_normalized = " ".join(
-        tokenize(section or "")
+    section_normalized = normalize_text(
+        section or ""
     )
 
     if query_normalized in text_normalized:
         return 1.0
 
-    query_words = query_normalized.split()
+    query_words = (
+        query_normalized.split()
+    )
 
     if len(query_words) < 2:
         return 0.0
@@ -306,7 +550,6 @@ def calculate_phrase_score(
     for index in range(
         len(query_words) - 1
     ):
-
         phrase = (
             f"{query_words[index]} "
             f"{query_words[index + 1]}"
@@ -329,7 +572,6 @@ def calculate_section_score(
     query: str,
     section: str | None,
 ) -> float:
-
     if not section:
         return 0.0
 
@@ -347,7 +589,10 @@ def calculate_section_score(
         return 0.0
 
     return (
-        len(query_tokens & section_tokens)
+        len(
+            query_tokens
+            & section_tokens
+        )
         / len(query_tokens)
     )
 
@@ -357,7 +602,6 @@ def calculate_coverage_score(
     text: str,
     section: str | None,
 ) -> float:
-
     query_tokens = {
         token
         for token in tokenize(query)
@@ -376,7 +620,8 @@ def calculate_coverage_score(
     )
 
     query_coverage_terms = (
-        query_tokens & COVERAGE_TERMS
+        query_tokens
+        & COVERAGE_TERMS
     )
 
     if not query_coverage_terms:
@@ -412,18 +657,20 @@ def calculate_coverage_score(
 def calculate_section_priority(
     section: str | None,
 ) -> float:
-
     if not section:
         return 0.0
 
-    normalized = " ".join(
-        tokenize(section)
+    normalized = normalize_text(
+        section
     )
 
-    for policy_section in POLICY_SECTION_TERMS:
-
-        normalized_section = " ".join(
-            tokenize(policy_section)
+    for policy_section in (
+        POLICY_SECTION_TERMS
+    ):
+        normalized_section = (
+            normalize_text(
+                policy_section
+            )
         )
 
         if normalized_section == normalized:
@@ -438,7 +685,6 @@ def calculate_intent_relevance(
     section: str | None,
     intent: str,
 ) -> float:
-
     if intent == "general":
         return 0.0
 
@@ -463,11 +709,14 @@ def calculate_intent_relevance(
     )
 
     relevant_query_terms = (
-        query_tokens & intent_terms
+        query_tokens
+        & intent_terms
     )
 
     if not relevant_query_terms:
-        relevant_query_terms = intent_terms
+        relevant_query_terms = (
+            intent_terms
+        )
 
     text_matches = len(
         relevant_query_terms
@@ -496,19 +745,131 @@ def calculate_intent_relevance(
     )
 
 
+def detect_candidate_scopes(
+    text: str,
+    section: str | None,
+) -> dict[str, float]:
+    combined = normalize_text(
+        f"{section or ''} {text}"
+    )
+
+    scores = {}
+
+    for scope, terms in (
+        SCOPE_TERMS.items()
+    ):
+        matches = 0
+
+        for term in terms:
+            normalized_term = (
+                normalize_text(term)
+            )
+
+            if normalized_term in combined:
+                matches += 1
+
+        if matches == 0:
+            scores[scope] = 0.0
+        else:
+            scores[scope] = min(
+                matches
+                / max(len(terms), 1),
+                1.0,
+            )
+
+    return scores
+
+
+def calculate_scope_score(
+    query: str,
+    text: str,
+    section: str | None,
+    scope: str,
+) -> float:
+    if scope == "general":
+        return 0.0
+
+    candidate_scopes = (
+        detect_candidate_scopes(
+            text=text,
+            section=section,
+        )
+    )
+
+    preferences = (
+        SCOPE_PREFERENCES.get(
+            scope,
+            {},
+        )
+    )
+
+    if not preferences:
+        return 0.0
+
+    score = 0.0
+
+    for (
+        candidate_scope,
+        preference,
+    ) in preferences.items():
+        candidate_score = (
+            candidate_scopes.get(
+                candidate_scope,
+                0.0,
+            )
+        )
+
+        score += (
+            candidate_score
+            * preference
+        )
+
+    query_text = normalize_text(
+        query
+    )
+
+    direct_scope_terms = (
+        SCOPE_TERMS.get(
+            scope,
+            set(),
+        )
+    )
+
+    direct_matches = 0
+
+    for term in direct_scope_terms:
+        if normalize_text(term) in query_text:
+            direct_matches += 1
+
+    if direct_scope_terms:
+        query_scope_score = (
+            direct_matches
+            / len(direct_scope_terms)
+        )
+    else:
+        query_scope_score = 0.0
+
+    score += (
+        query_scope_score
+        * 0.20
+    )
+
+    return max(
+        min(score, 1.0),
+        -1.0,
+    )
+
+
 def calculate_add_on_penalty(
     text: str,
     section: str | None,
     intent: str,
 ) -> float:
-
     if intent == "general":
         return 0.0
 
-    combined_text = " ".join(
-        tokenize(
-            f"{section or ''} {text}"
-        )
+    combined_text = normalize_text(
+        f"{section or ''} {text}"
     )
 
     add_on_terms = {
@@ -546,21 +907,25 @@ def calculate_add_on_penalty(
 def calculate_chroma_score(
     distance: float,
 ) -> float:
-
     return 1 / (
-        1 + max(distance, 0.0)
+        1 + max(
+            distance,
+            0.0,
+        )
     )
 
 
 def normalize_bm25_scores(
     results: list[dict],
 ) -> list[dict]:
-
     if not results:
         return results
 
     scores = [
-        result["bm25_score"]
+        result.get(
+            "bm25_score",
+            0.0,
+        )
         for result in results
     ]
 
@@ -568,16 +933,22 @@ def normalize_bm25_scores(
     minimum = min(scores)
 
     if maximum == minimum:
-
         for result in results:
-            result["bm25_normalized"] = 1.0
+            result[
+                "bm25_normalized"
+            ] = 1.0
 
         return results
 
     for result in results:
-        result["bm25_normalized"] = (
+        result[
+            "bm25_normalized"
+        ] = (
             (
-                result["bm25_score"]
+                result.get(
+                    "bm25_score",
+                    0.0,
+                )
                 - minimum
             )
             / (maximum - minimum)
@@ -590,7 +961,6 @@ def build_query_variants(
     query: str,
     intent: str,
 ) -> list[str]:
-
     normalized_query = query.strip()
 
     variants = [
@@ -598,7 +968,6 @@ def build_query_variants(
     ]
 
     if intent == "own_damage":
-
         variants.extend(
             [
                 (
@@ -615,7 +984,6 @@ def build_query_variants(
         )
 
     elif intent == "third_party":
-
         variants.append(
             (
                 f"{normalized_query} "
@@ -625,7 +993,6 @@ def build_query_variants(
         )
 
     elif intent == "theft":
-
         variants.append(
             (
                 f"{normalized_query} "
@@ -635,7 +1002,6 @@ def build_query_variants(
         )
 
     elif intent == "driver":
-
         variants.append(
             (
                 f"{normalized_query} "
@@ -645,7 +1011,6 @@ def build_query_variants(
         )
 
     elif intent == "deductible":
-
         variants.append(
             (
                 f"{normalized_query} "
@@ -655,7 +1020,6 @@ def build_query_variants(
         )
 
     elif intent == "idv":
-
         variants.append(
             (
                 f"{normalized_query} "
@@ -665,7 +1029,6 @@ def build_query_variants(
         )
 
     elif intent == "repair":
-
         variants.append(
             (
                 f"{normalized_query} "
@@ -675,7 +1038,6 @@ def build_query_variants(
         )
 
     elif intent == "police":
-
         variants.append(
             (
                 f"{normalized_query} "
@@ -692,7 +1054,6 @@ def retrieve_chroma_candidates(
     product: str,
     candidate_count: int,
 ) -> list[dict]:
-
     query_embedding = (
         create_query_embedding(query)
     )
@@ -730,12 +1091,15 @@ def retrieve_chroma_candidates(
         [[]],
     )[0]
 
-    for document, metadata, distance in zip(
+    for (
+        document,
+        metadata,
+        distance,
+    ) in zip(
         documents,
         metadatas,
         distances,
     ):
-
         metadata = metadata or {}
 
         candidates.append(
@@ -777,13 +1141,25 @@ def retrieve_chroma_candidates(
 def create_candidate_key(
     candidate: dict,
 ) -> tuple:
-
     return (
-        candidate.get("source", ""),
-        candidate.get("document_type", ""),
-        candidate.get("page_start"),
-        candidate.get("page_end"),
-        candidate.get("text", ""),
+        candidate.get(
+            "source",
+            "",
+        ),
+        candidate.get(
+            "document_type",
+            "",
+        ),
+        candidate.get(
+            "page_start"
+        ),
+        candidate.get(
+            "page_end"
+        ),
+        candidate.get(
+            "text",
+            "",
+        ),
     )
 
 
@@ -791,11 +1167,17 @@ def merge_candidates(
     chroma_candidates: list[dict],
     bm25_candidates: list[dict],
 ) -> list[dict]:
-
     merged = {}
 
-    for candidate in chroma_candidates:
+    bm25_candidates = (
+        normalize_bm25_scores(
+            bm25_candidates
+        )
+    )
 
+    for candidate in (
+        chroma_candidates
+    ):
         key = create_candidate_key(
             candidate
         )
@@ -806,36 +1188,41 @@ def merge_candidates(
             "bm25_normalized": 0.0,
         }
 
-    bm25_candidates = normalize_bm25_scores(
+    for candidate in (
         bm25_candidates
-    )
-
-    for candidate in bm25_candidates:
-
+    ):
         key = create_candidate_key(
             candidate
         )
 
         if key not in merged:
-
             merged[key] = {
                 **candidate,
                 "chroma_distance": None,
                 "chroma_score": 0.0,
             }
 
-        else:
+            continue
 
-            merged[key][
-                "bm25_score"
+        existing = merged[key]
+
+        if candidate.get(
+            "bm25_normalized",
+            0.0,
+        ) > existing.get(
+            "bm25_normalized",
+            0.0,
+        ):
+            existing[
+                "bm25_normalized"
             ] = candidate[
-                "bm25_score"
+                "bm25_normalized"
             ]
 
-            merged[key][
-                "bm25_normalized"
+            existing[
+                "bm25_score"
             ] = candidate[
-                "bm25_normalized"
+                "bm25_score"
             ]
 
     return list(
@@ -847,8 +1234,8 @@ def calculate_hybrid_score(
     query: str,
     candidate: dict,
     intent: str,
+    scope: str,
 ) -> float:
-
     text = candidate.get(
         "text",
         "",
@@ -868,55 +1255,79 @@ def calculate_hybrid_score(
         0.0,
     )
 
-    keyword_score = calculate_keyword_score(
-        query=query,
-        text=text,
-        section=section,
+    keyword_score = (
+        calculate_keyword_score(
+            query=query,
+            text=text,
+            section=section,
+        )
     )
 
-    phrase_score = calculate_phrase_score(
-        query=query,
-        text=text,
-        section=section,
+    phrase_score = (
+        calculate_phrase_score(
+            query=query,
+            text=text,
+            section=section,
+        )
     )
 
-    section_score = calculate_section_score(
-        query=query,
-        section=section,
+    section_score = (
+        calculate_section_score(
+            query=query,
+            section=section,
+        )
     )
 
-    coverage_score = calculate_coverage_score(
-        query=query,
-        text=text,
-        section=section,
+    coverage_score = (
+        calculate_coverage_score(
+            query=query,
+            text=text,
+            section=section,
+        )
     )
 
-    section_priority = calculate_section_priority(
-        section
+    section_priority = (
+        calculate_section_priority(
+            section
+        )
     )
 
-    intent_score = calculate_intent_relevance(
-        query=query,
-        text=text,
-        section=section,
-        intent=intent,
+    intent_score = (
+        calculate_intent_relevance(
+            query=query,
+            text=text,
+            section=section,
+            intent=intent,
+        )
     )
 
-    add_on_penalty = calculate_add_on_penalty(
-        text=text,
-        section=section,
-        intent=intent,
+    scope_score = (
+        calculate_scope_score(
+            query=query,
+            text=text,
+            section=section,
+            scope=scope,
+        )
+    )
+
+    add_on_penalty = (
+        calculate_add_on_penalty(
+            text=text,
+            section=section,
+            intent=intent,
+        )
     )
 
     return (
-        semantic_score * 0.25
-        + bm25_score * 0.25
-        + keyword_score * 0.12
-        + phrase_score * 0.08
-        + section_score * 0.08
-        + coverage_score * 0.08
-        + section_priority * 0.05
-        + intent_score * 0.14
+        semantic_score * 0.20
+        + bm25_score * 0.20
+        + keyword_score * 0.10
+        + phrase_score * 0.07
+        + section_score * 0.07
+        + coverage_score * 0.07
+        + section_priority * 0.04
+        + intent_score * 0.10
+        + scope_score * 0.25
         - add_on_penalty * 0.15
     )
 
@@ -925,7 +1336,6 @@ def is_duplicate(
     text: str,
     selected_texts: list[str],
 ) -> bool:
-
     normalized = set(
         tokenize(text)
     )
@@ -934,7 +1344,6 @@ def is_duplicate(
         return True
 
     for selected in selected_texts:
-
         selected_tokens = set(
             tokenize(selected)
         )
@@ -964,7 +1373,6 @@ def retrieve_policy_chunks(
     product: str,
     top_k: int = 5,
 ) -> list[dict]:
-
     if not query.strip():
         raise ValueError(
             "Query cannot be empty"
@@ -984,9 +1392,16 @@ def retrieve_policy_chunks(
         query
     )
 
-    query_variants = build_query_variants(
+    scope = detect_scope(
         query=query,
         intent=intent,
+    )
+
+    query_variants = (
+        build_query_variants(
+            query=query,
+            intent=intent,
+        )
     )
 
     candidate_count = max(
@@ -997,8 +1412,9 @@ def retrieve_policy_chunks(
     all_chroma_candidates = []
     all_bm25_candidates = []
 
-    for query_variant in query_variants:
-
+    for query_variant in (
+        query_variants
+    ):
         chroma_candidates = (
             retrieve_chroma_candidates(
                 query=query_variant,
@@ -1021,112 +1437,64 @@ def retrieve_policy_chunks(
             bm25_candidates
         )
 
-    merged_candidates = {}
-
-    for candidate in (
-        all_chroma_candidates
-        + all_bm25_candidates
-    ):
-
-        key = create_candidate_key(
-            candidate
-        )
-
-        existing = merged_candidates.get(
-            key
-        )
-
-        if existing is None:
-
-            merged_candidates[key] = {
-                **candidate,
-                "bm25_score": candidate.get(
-                    "bm25_score",
-                    0.0,
-                ),
-                "bm25_normalized": candidate.get(
-                    "bm25_normalized",
-                    0.0,
-                ),
-                "chroma_score": candidate.get(
-                    "chroma_score",
-                    0.0,
-                ),
-            }
-
-            continue
-
-        if candidate.get(
-            "chroma_score",
-            0.0,
-        ) > existing.get(
-            "chroma_score",
-            0.0,
-        ):
-
-            existing["chroma_score"] = (
-                candidate["chroma_score"]
-            )
-
-            existing["chroma_distance"] = (
-                candidate.get(
-                    "chroma_distance"
-                )
-            )
-
-        if candidate.get(
-            "bm25_normalized",
-            0.0,
-        ) > existing.get(
-            "bm25_normalized",
-            0.0,
-        ):
-
-            existing["bm25_normalized"] = (
-                candidate[
-                    "bm25_normalized"
-                ]
-            )
-
-            existing["bm25_score"] = (
-                candidate[
-                    "bm25_score"
-                ]
-            )
-
-    candidates = list(
-        merged_candidates.values()
+    candidates = merge_candidates(
+        chroma_candidates=(
+            all_chroma_candidates
+        ),
+        bm25_candidates=(
+            all_bm25_candidates
+        ),
     )
 
     for candidate in candidates:
-
         candidate["_score"] = (
             calculate_hybrid_score(
                 query=query,
                 candidate=candidate,
                 intent=intent,
+                scope=scope,
             )
         )
 
     candidates.sort(
-        key=lambda result: result["_score"],
+        key=lambda result: result[
+            "_score"
+        ],
         reverse=True,
+    )
+
+    candidate_pool_size = max(
+        top_k * 3,
+        12,
+    )
+
+    candidate_pool = candidates[
+        :candidate_pool_size
+    ]
+
+    reranked_candidates = (
+        rerank_policy_chunks(
+            query=query,
+            candidates=candidate_pool,
+            intent=intent,
+            scope=scope,
+            top_k=top_k,
+        )
     )
 
     selected = []
     selected_texts = []
 
-    for candidate in candidates:
-
+    for candidate in (
+        reranked_candidates
+    ):
         if is_duplicate(
             candidate["text"],
             selected_texts,
         ):
             continue
 
-        selected.append(
-            candidate
-        )
+        selected.append(candidate)
 
         selected_texts.append(
             candidate["text"]
@@ -1136,7 +1504,6 @@ def retrieve_policy_chunks(
             break
 
     for result in selected:
-
         result.pop(
             "_score",
             None,
