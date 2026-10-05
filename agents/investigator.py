@@ -1,9 +1,10 @@
 import json
 import re
 from datetime import datetime
-from openai import OpenAI
-from config import OPENAI_API_KEY, OPENAI_MODEL
 
+from openai import OpenAI
+
+from config import OPENAI_API_KEY, OPENAI_MODEL
 from state.budget import (
     add_usage,
     budget_exceeded,
@@ -26,17 +27,25 @@ from tools.policy import (
 )
 
 
-client = OpenAI(
-    api_key=OPENAI_API_KEY
-)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 MAX_POLICY_SEARCHES = 2
 FINAL_OUTPUT_TOKEN_LIMIT = 5000
 
 
-def parse_date(
-    value: str,
-) -> datetime | None:
+def parse_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+
+    value = value.strip()
+
+    date_match = re.search(
+        r"\b\d{2}[/.]\d{2}[/.]\d{4}\b",
+        value,
+    )
+
+    if date_match:
+        value = date_match.group()
 
     for date_format in (
         "%d/%m/%Y",
@@ -45,7 +54,7 @@ def parse_date(
     ):
         try:
             return datetime.strptime(
-                value.strip(),
+                value,
                 date_format,
             )
         except ValueError:
@@ -57,7 +66,6 @@ def parse_date(
 def normalize_text(
     value: str | None,
 ) -> str:
-
     if not value:
         return ""
 
@@ -71,42 +79,36 @@ def normalize_text(
 def normalize_policy_number(
     value: str | None,
 ) -> str:
-
     return normalize_text(value)
 
 
 def normalize_registration_number(
     value: str | None,
 ) -> str:
-
     return normalize_text(value)
 
 
 def normalize_license_number(
     value: str | None,
 ) -> str:
-
     return normalize_text(value)
 
 
 def normalize_name(
     value: str | None,
 ) -> str:
-
     return normalize_text(value)
 
 
 def normalize_vehicle_value(
     value: str | None,
 ) -> str:
-
     return normalize_text(value)
 
 
 def normalize_time(
     value: str | None,
 ) -> str:
-
     if not value:
         return ""
 
@@ -129,45 +131,79 @@ def normalize_time(
         except ValueError:
             continue
 
+    time_match = re.search(
+        r"\b\d{1,2}:\d{2}(?::\d{2})?\b",
+        value,
+    )
+
+    if time_match:
+        extracted_time = time_match.group()
+
+        for time_format in (
+            "%H:%M",
+            "%H:%M:%S",
+        ):
+            try:
+                parsed = datetime.strptime(
+                    extracted_time,
+                    time_format,
+                )
+
+                return parsed.strftime("%H:%M")
+
+            except ValueError:
+                continue
+
     return normalize_text(value)
 
 
 def calculate_policy_validity(
     extraction: ClaimExtraction,
 ) -> InvestigationStatus:
+    insurance_period = (
+        extraction.policy.insurance_period
+    )
 
-    if not extraction.policy.insurance_period:
-        return "INSUFFICIENT_EVIDENCE"
-
-    if not extraction.accident.date:
-        return "INSUFFICIENT_EVIDENCE"
-
-    try:
-        start, end = (
-            extraction.policy.insurance_period.split(
-                " to "
-            )
-        )
-
-    except ValueError:
-        return "INSUFFICIENT_EVIDENCE"
-
-    start_date = parse_date(start)
-
-    end_date = parse_date(end)
-
-    accident_date = parse_date(
+    accident_date = (
         extraction.accident.date
+    )
+
+    if not insurance_period:
+        return "INSUFFICIENT_EVIDENCE"
+
+    if not accident_date:
+        return "INSUFFICIENT_EVIDENCE"
+
+    period_parts = re.split(
+        r"\s+to\s+",
+        insurance_period,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )
+
+    if len(period_parts) != 2:
+        return "INSUFFICIENT_EVIDENCE"
+
+    start_date = parse_date(
+        period_parts[0]
+    )
+
+    end_date = parse_date(
+        period_parts[1]
+    )
+
+    accident = parse_date(
+        accident_date
     )
 
     if (
         not start_date
         or not end_date
-        or not accident_date
+        or not accident
     ):
         return "INSUFFICIENT_EVIDENCE"
 
-    if start_date <= accident_date <= end_date:
+    if start_date <= accident <= end_date:
         return "VALID"
 
     return "INVALID"
@@ -176,25 +212,35 @@ def calculate_policy_validity(
 def calculate_license_validity(
     extraction: ClaimExtraction,
 ) -> InvestigationStatus:
-
-    if not extraction.driver.license_expiry_date:
-        return "INSUFFICIENT_EVIDENCE"
-
-    if not extraction.accident.date:
-        return "INSUFFICIENT_EVIDENCE"
-
-    expiry_date = parse_date(
+    expiry_date = (
         extraction.driver.license_expiry_date
     )
 
-    accident_date = parse_date(
+    accident_date = (
         extraction.accident.date
     )
 
-    if not expiry_date or not accident_date:
+    if not expiry_date:
         return "INSUFFICIENT_EVIDENCE"
 
-    if accident_date <= expiry_date:
+    if not accident_date:
+        return "INSUFFICIENT_EVIDENCE"
+
+    parsed_expiry = parse_date(
+        expiry_date
+    )
+
+    parsed_accident = parse_date(
+        accident_date
+    )
+
+    if (
+        not parsed_expiry
+        or not parsed_accident
+    ):
+        return "INSUFFICIENT_EVIDENCE"
+
+    if parsed_accident <= parsed_expiry:
         return "VALID"
 
     return "INVALID"
@@ -203,7 +249,6 @@ def calculate_license_validity(
 def build_document_validation_context(
     state: ClaimState,
 ) -> str:
-
     if state.document_validation is None:
         return (
             "No document validation result is available."
@@ -219,7 +264,6 @@ def build_investigation_prompt(
     policy_status: InvestigationStatus,
     license_status: InvestigationStatus,
 ) -> str:
-
     extraction = state.extracted_data
 
     if extraction is None:
@@ -227,32 +271,10 @@ def build_investigation_prompt(
             "Extracted claim data is required for investigation."
         )
 
-    if state.review is not None:
-
-        investigation_context = """
-
-This is a re-investigation.
-
-A previous review identified an issue requiring further
-investigation.
-
-Use the previous review only to identify what should be
-re-examined. Do not treat it as factual evidence.
-
-Base all findings on the current evidence.
-
-"""
-
-    else:
-
-        investigation_context = """
-
-This is the initial investigation of the claim.
-
-"""
-
-    claim_form = state.claim_form.model_dump_json(
-        indent=2
+    claim_form = (
+        state.claim_form.model_dump_json(
+            indent=2
+        )
     )
 
     document_validation = (
@@ -264,135 +286,132 @@ This is the initial investigation of the claim.
     previous_review = ""
 
     if state.review is not None:
-
         previous_review = f"""
-
 PREVIOUS REVIEW
 
 {state.review.model_dump_json(indent=2)}
 
+Use the previous review only to identify issues
+that require re-examination.
+
+Do not treat previous review conclusions as factual
+evidence.
 """
 
     return f"""
-
 You are the Investigator agent for a motor insurance claim.
 
-Investigate using:
+Your task is to investigate the claim using only the
+available evidence.
+
+Use:
 
 1. Extracted claim data.
-
 2. Online claim form data.
-
 3. Document validation results.
-
 4. Policy evidence retrieved through the policy search tool.
 
 Do not perform document extraction.
-
 Do not verify document authenticity.
-
 Do not invent facts.
+Do not infer facts that are not explicitly supported.
+Do not make a final payout decision.
+Do not make the final approval decision.
 
-Do not make a final payout or approval decision.
+The uploaded documents are considered authentic by the
+system. Document validation determines whether a submitted
+document is usable as evidence.
 
-{investigation_context}
-
-DOCUMENT VALIDATION
-
-VALID documents may be used as supporting evidence.
-
+VALID documents may be used as evidence.
 INVALID documents must not be treated as reliable evidence.
 
-Use the validated document information when evaluating the claim.
-
 Do not request another document merely because an existing
-document has been validated as VALID.
+document is VALID.
 
-POLICY SEARCH
-
-Use the policy search tool only when a specific policy wording
-question requires verification.
-
-Use product "private_car".
-
-You may search the policy knowledge base at most twice.
-
-Do not use general insurance knowledge when the answer depends
-on policy wording.
-
-When investigating accidental damage to the insured vehicle,
-policy searches must specifically target Section I / Own Damage.
-
-For vehicle-damage coverage questions, do not use broad queries
-such as:
-
-"Does the policy cover accidental damage?"
-
-Instead, search specifically for the applicable Section I wording.
-
-The first policy search should focus on:
-
-- Section I / Own Damage
-- accidental loss or damage to the insured vehicle
-- collision with a fixed object
-- the actual accident circumstances
-- whether that type of accidental collision falls within the
-  Section I cover
-
-For the current claim, the accident description should be used
-to make the search specific. In particular, if the evidence
-describes collision with a concrete median divider or another
-fixed object, include that circumstance in the policy query.
-
-If a second policy search is required, it should focus on:
-
-- Section I exclusions
-- Section I conditions
-- reasonable-care requirements
-- accident reporting requirements
-- applicable deductibles
-- conditions affecting accidental collision damage
-
-Do not use unrelated add-on sections as evidence for Section I
-Own Damage coverage.
-
-For example, evidence concerning personal belongings,
-No Claim Bonus, electric vehicle battery coverage, or other
-optional/add-on covers must not be treated as evidence that
-Section I Own Damage covers the claimed vehicle damage unless
-the policy wording explicitly connects that section to the claim.
-
-Do not conclude that the claim is covered merely because the
-policy contains general language about accidental damage.
-
-The retrieved policy evidence must contain wording relevant to
-the applicable Section I / Own Damage coverage, exclusion,
-condition, or deductible before it is used to support the
-investigation.
-
-If the retrieved evidence does not establish the applicable
-coverage, report the limitation as INSUFFICIENT_EVIDENCE or
-CONCERN rather than assuming coverage.
-
-DETERMINISTIC RESULTS
+CURRENT DETERMINISTIC RESULTS
 
 Policy Validity: {policy_status}
 
 Driver and Licence Information: {license_status}
 
-These two statuses are computed by the system and must not be
-overridden.
+These two statuses are calculated by the system and must
+not be overridden.
 
-The licence status only checks whether the licence was unexpired
-on the accident date.
+The licence status only checks whether the licence was
+unexpired on the accident date.
 
-Do not infer vehicle-class compatibility from the vehicle make
-or model.
+Do not infer vehicle-class compatibility unless the
+available evidence explicitly establishes it.
+
+POLICY SEARCH
+
+The policy knowledge base contains the configured motor
+insurance policy for product "private_car".
+
+Use the search_policy tool only when a specific policy
+wording question requires verification.
+
+You may perform at most two policy searches.
+
+Prioritize the most important unresolved policy question.
+
+Ask one focused policy question per search.
+
+Do not use general insurance knowledge when the answer
+depends on the policy wording.
+
+For accidental damage to the insured vehicle, policy
+searches must focus on Section I / Own Damage.
+
+Use the actual accident circumstances to make the search
+specific.
+
+For example, if the accident evidence states that the
+vehicle collided with a concrete median divider, the
+policy search should explicitly mention collision with
+a fixed object or similar circumstances.
+
+For the first search, prioritize:
+
+- Section I / Own Damage
+- accidental loss or damage
+- the actual accident circumstances
+- whether the specific type of accident falls within
+  Section I coverage
+
+If a second search is necessary, prioritize:
+
+- Section I exclusions
+- applicable conditions
+- reasonable-care requirements
+- accident reporting requirements
+- applicable deductible
+- conditions affecting the specific accident
+
+Do not use unrelated add-on sections as evidence for
+Section I Own Damage.
+
+For example, personal belongings, tyre add-ons, No Claim
+Bonus protection, electric vehicle battery coverage, or
+other optional covers must not be treated as evidence
+that Section I covers the claimed vehicle damage unless
+the policy wording explicitly connects them.
+
+Do not conclude that accidental damage is covered merely
+because the policy contains general accidental-damage
+language.
+
+The policy evidence must be relevant to the actual claim
+circumstances.
+
+If policy evidence does not establish coverage, report
+INSUFFICIENT_EVIDENCE or CONCERN rather than assuming
+coverage.
 
 DETERMINISTIC CONSISTENCY CHECKS
 
-The system compares these fields between the online claim form
-and extracted data:
+Compare these fields between the online claim form and
+extracted data:
 
 - policy number
 - vehicle registration number
@@ -403,27 +422,29 @@ and extracted data:
 - vehicle make
 - vehicle model
 
-If both values exist and differ after normalization, report a
-contradiction.
+If both values exist and differ after normalization,
+report a contradiction.
 
 If the claim form has a value but extracted data does not,
-report missing information rather than a contradiction.
+report missing information.
+
+A missing value is not a contradiction.
 
 Do not invent contradictions.
 
 INVESTIGATION CATEGORIES
 
-Produce exactly one finding for each:
+Produce exactly one finding for each category:
 
-- Policy Validity
-- Driver and Licence Information
-- Vehicle Information
-- Accident Information
-- Damage Information
-- Third-Party Involvement
-- Police/FIR Information
+1. Policy Validity
+2. Driver and Licence Information
+3. Vehicle Information
+4. Accident Information
+5. Damage Information
+6. Third-Party Involvement
+7. Police/FIR Information
 
-Each finding must have:
+Each finding must contain:
 
 - category
 - status
@@ -437,13 +458,7 @@ Allowed statuses:
 - CONCERN
 - INSUFFICIENT_EVIDENCE
 
-Keep finding and evidence concise.
-
-Use only evidence supported by the supplied data.
-
-Do not infer fraud.
-
-Do not invent policy requirements.
+Keep findings concise.
 
 POLICY VALIDITY
 
@@ -458,34 +473,35 @@ Consider:
 
 DRIVER AND LICENCE INFORMATION
 
-Use the deterministic Driver and Licence Information status.
+Use the deterministic Driver and Licence Information
+status.
 
 Consider:
 
 - driver identity
 - licence number
 - licence expiry date
-- authorized vehicle types
+- available driver information
 
-Do not claim vehicle-class compatibility unless the evidence
-explicitly supports it.
+Do not claim vehicle-class compatibility unless explicitly
+supported by evidence.
 
 VEHICLE INFORMATION
 
-Compare:
+Consider:
 
 - registration number
 - make
 - model
 - vehicle identity
-- consistency between submitted sources
+- consistency between available sources
 
-If the available sources agree, treat the information as
-consistent.
+If the available sources agree, treat the information
+as consistent.
 
 ACCIDENT INFORMATION
 
-Compare:
+Consider:
 
 - accident date
 - accident time
@@ -494,43 +510,85 @@ Compare:
 
 Use deterministic checks for date and time.
 
-Use the available evidence for location and description.
+If the claim form or supporting documents explicitly provide
+the accident date, time, location, and circumstances and the
+available evidence is internally consistent, this category
+can be VALID.
 
-Do not invent accident circumstances.
+Do not require independent third-party corroboration merely
+because it is not present.
+
+Independent corroboration is additional evidence, not an
+automatic requirement for establishing the reported accident
+information.
+
+Use CONCERN only when the available evidence contains an
+actual contradiction or material inconsistency.
+
+Use INSUFFICIENT_EVIDENCE only when material accident
+information is actually missing.
 
 DAMAGE INFORMATION
 
-Compare:
+Consider:
 
 - claimed damage
 - survey findings
 - repair estimate
 - repair amount
+- policy evidence relevant to the damage
 
-Check for material inconsistencies between these sources.
+Distinguish between:
 
-Do not determine whether the repair amount is reasonable unless
-the available policy evidence specifically makes that relevant.
+- Section I / Own Damage coverage
+- Section I exclusions
+- policy conditions
+- deductibles
+- unrelated optional/add-on covers
+
+Do not use unrelated add-on coverage as evidence for
+Section I Own Damage.
+
+Do not determine whether a repair amount is reasonable
+unless the available evidence specifically supports that
+determination.
 
 THIRD-PARTY INVOLVEMENT
 
-Use only the available evidence.
+Use only available evidence.
 
-Compare the claim form and supporting evidence.
+Compare the claim form and supporting documents.
+
+If the available evidence explicitly states that no third
+party was involved and there is no contradictory evidence,
+this category can be VALID.
+
+A collision with a fixed object such as a divider, wall,
+pole, barrier, or similar object can support no-third-party
+involvement when the submitted evidence explicitly supports
+it.
+
+Do not require independent corroboration merely because it
+is not present.
 
 Do not infer third-party involvement without evidence.
 
+Use CONCERN only when there is contradictory evidence.
+
+Use INSUFFICIENT_EVIDENCE only when the available evidence
+does not allow a reasonable determination.
+
 POLICE/FIR INFORMATION
 
-Use the available evidence.
+Use only available evidence.
 
-Do not mark this category VALID merely because the claim says
-there was no FIR.
+Do not mark this category VALID merely because the claim
+states that there was no FIR.
 
 Do not invent a legal requirement for an FIR.
 
-Use INSUFFICIENT_EVIDENCE when the available evidence cannot
-establish an important police/FIR fact.
+Use INSUFFICIENT_EVIDENCE when an important police/FIR
+fact cannot be established.
 
 OVERALL STATUS
 
@@ -538,82 +596,78 @@ Use:
 
 INVALID when a validity problem is established.
 
-CONCERN when further investigation is required but invalidity
-is not established.
+CONCERN when further investigation is required but
+invalidity is not established.
 
-INSUFFICIENT_EVIDENCE when an important determination cannot be
-made from the available evidence.
+INSUFFICIENT_EVIDENCE when an important determination
+cannot be made from the available evidence.
 
 VALID only when the evidence is sufficient across the
 investigated areas and no validity problem is identified.
 
 MISSING INFORMATION
 
-Only include materially relevant missing information.
+For missing_information, include only material missing
+information.
 
-A missing optional field is not automatically material.
+Do not include document validation results as missing information.
+
+Do not request documents that are already present and VALID.
+
+Do not request a complete policy schedule when a valid policy
+schedule is already available.
+
+If policy coverage remains unresolved, identify the specific
+policy wording or coverage evidence that remains unresolved.
+Do not request generic policy documents.
 
 CONTRADICTIONS
 
-Only include actual contradictions between available evidence.
+Include only actual contradictions between available
+evidence.
 
-A missing value is not a contradiction.
-
-Return only the structured investigation result.
+Return only the structured InvestigationResult.
 
 ONLINE CLAIM FORM
 
 <claim_form>
-
 {claim_form}
-
 </claim_form>
 
 DOCUMENT VALIDATION
 
 <document_validation>
-
 {document_validation}
-
 </document_validation>
 
 EXTRACTED CLAIM DATA
 
 <extracted_claim_data>
-
 {extraction.model_dump_json(indent=2)}
-
 </extracted_claim_data>
 
 {previous_review}
-
 """.strip()
 
 
-def _create_deterministic_finding(
+def create_deterministic_finding(
     category: str,
     status: InvestigationStatus,
     extraction: ClaimExtraction,
 ) -> InvestigationFinding:
 
     if category == POLICY_VALIDITY:
-
         if status == "VALID":
-
             finding = (
                 "The accident date falls within the "
                 "stated insurance period."
             )
-
         elif status == "INVALID":
-
             finding = (
                 "The accident date falls outside the "
                 "stated insurance period."
             )
-
         else:
-
             finding = (
                 "Policy validity could not be established "
                 "from the available dates."
@@ -627,24 +681,18 @@ def _create_deterministic_finding(
         )
 
     else:
-
         if status == "VALID":
-
             finding = (
                 "The driver's licence was unexpired on "
                 "the accident date. This does not confirm "
                 "licence-vehicle compatibility."
             )
-
         elif status == "INVALID":
-
             finding = (
                 "The driver's licence was not valid on "
                 "the accident date."
             )
-
         else:
-
             finding = (
                 "Driver licence validity could not be "
                 "established from the available dates."
@@ -665,14 +713,12 @@ def _create_deterministic_finding(
     )
 
 
-def _deduplicate_findings(
+def deduplicate_findings(
     findings: list[InvestigationFinding],
 ) -> list[InvestigationFinding]:
-
     unique_findings = {}
 
     for finding in findings:
-
         if finding.category not in unique_findings:
             unique_findings[finding.category] = finding
 
@@ -681,54 +727,119 @@ def _deduplicate_findings(
     )
 
 
-def _add_missing_information(
+def add_missing_information(
     investigation: InvestigationResult,
     message: str,
 ) -> None:
-
     if message not in investigation.missing_information:
-
         investigation.missing_information.append(
             message
         )
 
 
-def _add_contradiction(
+def clean_missing_information(
+    investigation: InvestigationResult,
+    state: ClaimState,
+) -> None:
+    cleaned = []
+
+    for message in investigation.missing_information:
+        normalized = message.lower()
+
+        if "document validation result" in normalized:
+            continue
+
+        if (
+            "complete policy schedule" in normalized
+            and state.claim_documents
+        ):
+            continue
+
+        if (
+            "policy schedule and endorsements" in normalized
+            and any(
+                document.document_type == "policy_schedule"
+                and document.uploaded
+                and document.validity == "VALID"
+                for document in state.claim_documents
+            )
+        ):
+            continue
+
+        cleaned.append(message)
+
+    investigation.missing_information = cleaned
+
+
+def add_contradiction(
     investigation: InvestigationResult,
     message: str,
 ) -> None:
-
     if message not in investigation.contradictions:
-
         investigation.contradictions.append(
             message
         )
 
 
-def _check_value_consistency(
+def normalize_vehicle_model(value: str | None) -> str:
+    if not value:
+        return ""
+
+    value = value.strip().lower()
+    value = re.sub(r"\([^)]*\)", "", value)
+
+    return normalize_text(value)
+
+
+def values_are_consistent(
+    claim_value: str,
+    extracted_value: str,
+    field_name: str,
+    normalizer,
+) -> bool:
+    claim_normalized = normalizer(claim_value)
+    extracted_normalized = normalizer(extracted_value)
+
+    if not claim_normalized or not extracted_normalized:
+        return False
+
+    if claim_normalized == extracted_normalized:
+        return True
+
+    if field_name == "Policy number":
+        return claim_normalized in extracted_normalized
+
+    if field_name == "Vehicle model":
+        claim_model = normalize_vehicle_model(claim_value)
+        extracted_model = normalize_vehicle_model(extracted_value)
+
+        return (
+            bool(claim_model)
+            and bool(extracted_model)
+            and claim_model == extracted_model
+        )
+
+    return False
+
+
+def check_value_consistency(
     investigation: InvestigationResult,
     claim_value: str | None,
     extracted_value: str | None,
     field_name: str,
     normalizer,
 ) -> None:
+    claim_normalized = normalizer(claim_value)
+    extracted_normalized = normalizer(extracted_value)
 
-    claim_normalized = normalizer(
-        claim_value
-    )
-
-    extracted_normalized = normalizer(
-        extracted_value
-    )
-
-    if (
-        claim_normalized
-        and extracted_normalized
-    ):
-
-        if claim_normalized != extracted_normalized:
-
-            _add_contradiction(
+    if claim_normalized and extracted_normalized:
+        if not values_are_consistent(
+            claim_value,
+            extracted_value,
+            field_name,
+            normalizer,
+        ):
+            add_contradiction(
                 investigation,
                 (
                     f"{field_name} differs between the online "
@@ -738,12 +849,8 @@ def _check_value_consistency(
                 ),
             )
 
-    elif (
-        claim_normalized
-        and not extracted_normalized
-    ):
-
-        _add_missing_information(
+    elif claim_normalized and not extracted_normalized:
+        add_missing_information(
             investigation,
             (
                 f"{field_name} is provided in the online claim "
@@ -753,7 +860,7 @@ def _check_value_consistency(
         )
 
 
-def _check_date_consistency(
+def check_date_consistency(
     investigation: InvestigationResult,
     claim_value: str | None,
     extracted_value: str | None,
@@ -761,7 +868,6 @@ def _check_date_consistency(
 ) -> None:
 
     if claim_value and extracted_value:
-
         claim_date = parse_date(
             claim_value
         )
@@ -771,13 +877,11 @@ def _check_date_consistency(
         )
 
         if claim_date and extracted_date:
-
             if (
                 claim_date.date()
                 != extracted_date.date()
             ):
-
-                _add_contradiction(
+                add_contradiction(
                     investigation,
                     (
                         f"{field_name} differs between the online "
@@ -789,7 +893,7 @@ def _check_date_consistency(
 
             return
 
-    _check_value_consistency(
+    check_value_consistency(
         investigation,
         claim_value,
         extracted_value,
@@ -798,7 +902,7 @@ def _check_date_consistency(
     )
 
 
-def _check_time_consistency(
+def check_time_consistency(
     investigation: InvestigationResult,
     claim_value: str | None,
     extracted_value: str | None,
@@ -817,13 +921,11 @@ def _check_time_consistency(
         claim_normalized
         and extracted_normalized
     ):
-
         if (
             claim_normalized
             != extracted_normalized
         ):
-
-            _add_contradiction(
+            add_contradiction(
                 investigation,
                 (
                     f"{field_name} differs between the online "
@@ -837,8 +939,7 @@ def _check_time_consistency(
         claim_normalized
         and not extracted_normalized
     ):
-
-        _add_missing_information(
+        add_missing_information(
             investigation,
             (
                 f"{field_name} is provided in the online claim "
@@ -848,7 +949,7 @@ def _check_time_consistency(
         )
 
 
-def _apply_deterministic_consistency_checks(
+def apply_deterministic_consistency_checks(
     investigation: InvestigationResult,
     state: ClaimState,
 ) -> None:
@@ -860,7 +961,7 @@ def _apply_deterministic_consistency_checks(
 
     claim_form = state.claim_form
 
-    _check_value_consistency(
+    check_value_consistency(
         investigation,
         claim_form.policy_number,
         extraction.policy.policy_number,
@@ -868,7 +969,7 @@ def _apply_deterministic_consistency_checks(
         normalize_policy_number,
     )
 
-    _check_value_consistency(
+    check_value_consistency(
         investigation,
         claim_form.vehicle_registration_number,
         extraction.vehicle.registration_number,
@@ -876,21 +977,21 @@ def _apply_deterministic_consistency_checks(
         normalize_registration_number,
     )
 
-    _check_date_consistency(
+    check_date_consistency(
         investigation,
         claim_form.accident_date,
         extraction.accident.date,
         "Accident date",
     )
 
-    _check_time_consistency(
+    check_time_consistency(
         investigation,
         claim_form.accident_time,
         extraction.accident.time,
         "Accident time",
     )
 
-    _check_value_consistency(
+    check_value_consistency(
         investigation,
         claim_form.driver_license_number,
         extraction.driver.license_number,
@@ -898,7 +999,7 @@ def _apply_deterministic_consistency_checks(
         normalize_license_number,
     )
 
-    _check_value_consistency(
+    check_value_consistency(
         investigation,
         claim_form.driver_name,
         extraction.driver.name,
@@ -906,7 +1007,7 @@ def _apply_deterministic_consistency_checks(
         normalize_name,
     )
 
-    _check_value_consistency(
+    check_value_consistency(
         investigation,
         claim_form.vehicle_make,
         extraction.vehicle.make,
@@ -914,7 +1015,7 @@ def _apply_deterministic_consistency_checks(
         normalize_vehicle_value,
     )
 
-    _check_value_consistency(
+    check_value_consistency(
         investigation,
         claim_form.vehicle_model,
         extraction.vehicle.model,
@@ -923,7 +1024,7 @@ def _apply_deterministic_consistency_checks(
     )
 
 
-def _enforce_deterministic_status(
+def enforce_deterministic_status(
     investigation: InvestigationResult,
     policy_status: InvestigationStatus,
     license_status: InvestigationStatus,
@@ -931,7 +1032,7 @@ def _enforce_deterministic_status(
 ) -> None:
 
     investigation.findings = (
-        _deduplicate_findings(
+        deduplicate_findings(
             investigation.findings
         )
     )
@@ -947,17 +1048,13 @@ def _enforce_deterministic_status(
     }
 
     for category, status in overrides.items():
-
         if category in findings_by_category:
-
             findings_by_category[
                 category
             ].status = status
-
         else:
-
             investigation.findings.append(
-                _create_deterministic_finding(
+                create_deterministic_finding(
                     category,
                     status,
                     extraction,
@@ -968,11 +1065,14 @@ def _enforce_deterministic_status(
         policy_status,
         license_status,
     }:
-
         investigation.overall_status = "INVALID"
 
+    elif investigation.contradictions:
+        if investigation.overall_status == "VALID":
+            investigation.overall_status = "CONCERN"
 
-def _record_usage(
+
+def record_usage(
     state: ClaimState,
     response,
 ) -> None:
@@ -1003,20 +1103,18 @@ def _record_usage(
     )
 
 
-def _execute_policy_tool(
+def execute_policy_tool(
     arguments: str,
 ) -> str:
 
     try:
-
         parsed_arguments = json.loads(
             arguments
         )
 
     except json.JSONDecodeError as exc:
-
         raise ValueError(
-            "Policy tool returned invalid arguments"
+            "Policy tool returned invalid arguments."
         ) from exc
 
     query = parsed_arguments.get(
@@ -1027,29 +1125,26 @@ def _execute_policy_tool(
         "product"
     )
 
-    if not isinstance(
-        query,
-        str,
-    ) or not query.strip():
-
+    if (
+        not isinstance(query, str)
+        or not query.strip()
+    ):
         raise ValueError(
-            "Policy tool query is required"
+            "Policy tool query is required."
         )
 
-    if not isinstance(
-        product,
-        str,
-    ) or not product.strip():
-
+    if (
+        not isinstance(product, str)
+        or not product.strip()
+    ):
         raise ValueError(
-            "Policy tool product is required"
+            "Policy tool product is required."
         )
 
     if product != "private_car":
-
         raise ValueError(
             "The current investigation scope supports "
-            "private_car only"
+            "private_car only."
         )
 
     return search_policy(
@@ -1058,7 +1153,75 @@ def _execute_policy_tool(
     )
 
 
-def _run_investigation_model(
+def collect_policy_searches(
+    state: ClaimState,
+    response,
+) -> list[dict]:
+
+    tool_calls = [
+        item
+        for item in response.output
+        if item.type == "function_call"
+        and item.name == "search_policy"
+    ]
+
+    policy_evidence = []
+
+    for tool_call in tool_calls[
+        :MAX_POLICY_SEARCHES
+    ]:
+        result = execute_policy_tool(
+            tool_call.arguments
+        )
+
+        policy_evidence.append(
+            {
+                "call_id": tool_call.call_id,
+                "arguments": tool_call.arguments,
+                "result": result,
+            }
+        )
+
+    return policy_evidence
+
+
+def build_policy_evidence_text(
+    policy_evidence: list[dict],
+) -> str:
+
+    if not policy_evidence:
+        return (
+            "No policy search was performed."
+        )
+
+    sections = [
+        "POLICY SEARCH EVIDENCE"
+    ]
+
+    for index, evidence in enumerate(
+        policy_evidence,
+        start=1,
+    ):
+        sections.append(
+            f"""
+Policy search {index}
+
+Query:
+
+{evidence["arguments"]}
+
+Evidence:
+
+{evidence["result"]}
+""".strip()
+        )
+
+    return "\n\n".join(
+        sections
+    )
+
+
+def run_investigation_model(
     state: ClaimState,
     policy_status: InvestigationStatus,
     license_status: InvestigationStatus,
@@ -1073,20 +1236,6 @@ def _run_investigation_model(
         license_status,
     )
 
-    input_items = [
-        {
-            "role": "system",
-            "content": (
-                "You are a conservative motor insurance "
-                "claim investigator."
-            ),
-        },
-        {
-            "role": "user",
-            "content": prompt,
-        },
-    ]
-
     allowed_output_tokens = max_output_tokens(
         state
     )
@@ -1096,100 +1245,68 @@ def _run_investigation_model(
 
     response = client.responses.create(
         model=OPENAI_MODEL,
-        input=input_items,
+        input=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a conservative motor insurance "
+                    "claim investigator. "
+                    "Use the policy search tool only when "
+                    "specific policy wording must be verified."
+                ),
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
         tools=[
             POLICY_SEARCH_TOOL
         ],
         max_output_tokens=allowed_output_tokens,
     )
 
-    _record_usage(
+    record_usage(
         state,
         response,
     )
 
-    tool_calls = [
-        item
-        for item in response.output
-        if item.type == "function_call"
-        and item.name == "search_policy"
-    ]
-
-    policy_evidence = []
-
-    for tool_call in tool_calls[
-        :MAX_POLICY_SEARCHES
-    ]:
-
-        result = _execute_policy_tool(
-            tool_call.arguments
-        )
-
-        policy_evidence.append(
-            {
-                "call_id": tool_call.call_id,
-                "arguments": tool_call.arguments,
-                "result": result,
-            }
-        )
+    policy_evidence = collect_policy_searches(
+        state,
+        response,
+    )
 
     if budget_exceeded(state):
         return None
-
-    evidence_text = ""
-
-    if policy_evidence:
-
-        evidence_text = (
-            "\nPOLICY SEARCH EVIDENCE\n"
-        )
-
-        for index, evidence in enumerate(
-            policy_evidence,
-            start=1,
-        ):
-
-            evidence_text += (
-                f"\nPolicy search {index}\n"
-                f"Query: {evidence['arguments']}\n"
-                f"Evidence:\n"
-                f"{evidence['result']}\n"
-            )
 
     extraction = state.extracted_data
 
     if extraction is None:
         return None
 
-    compact_final_prompt = f"""
+    evidence_text = build_policy_evidence_text(
+        policy_evidence
+    )
 
+    compact_final_prompt = f"""
 Produce the final structured investigation result.
 
-You must return exactly 7 findings:
+Return exactly 7 findings:
 
 1. Policy Validity
-
 2. Driver and Licence Information
-
 3. Vehicle Information
-
 4. Accident Information
-
 5. Damage Information
-
 6. Third-Party Involvement
-
 7. Police/FIR Information
 
 Allowed finding statuses:
 
-VALID
-
-INVALID
-
-CONCERN
-
-INSUFFICIENT_EVIDENCE
+- VALID
+- INVALID
+- CONCERN
+- INSUFFICIENT_EVIDENCE
 
 Use these deterministic statuses exactly:
 
@@ -1197,7 +1314,46 @@ Policy Validity: {policy_status}
 
 Driver and Licence Information: {license_status}
 
-Use the evidence below.
+Do not override these statuses.
+
+ACCIDENT INFORMATION
+
+If the claim form or supporting documents explicitly provide
+the accident date, time, location, and circumstances and the
+evidence is internally consistent, Accident Information can
+be VALID.
+
+Do not require independent third-party corroboration merely
+because it is absent.
+
+Independent corroboration is additional evidence and is not
+an automatic requirement.
+
+Use CONCERN only for an actual contradiction or material
+inconsistency.
+
+Use INSUFFICIENT_EVIDENCE only when material accident
+information is actually missing.
+
+THIRD-PARTY INVOLVEMENT
+
+If the available evidence explicitly states that no third
+party was involved and there is no contradictory evidence,
+Third-Party Involvement can be VALID.
+
+A collision with a fixed object such as a divider, wall, pole,
+barrier, or similar object can support no-third-party
+involvement when explicitly supported by the evidence.
+
+Do not require independent corroboration merely because it
+is absent.
+
+Use CONCERN only when contradictory evidence exists.
+
+Use INSUFFICIENT_EVIDENCE only when the available evidence
+does not allow a reasonable determination.
+
+DAMAGE INFORMATION
 
 When evaluating Damage Information, distinguish between:
 
@@ -1206,48 +1362,43 @@ When evaluating Damage Information, distinguish between:
 - deductibles
 - unrelated add-on or optional covers
 
-Do not use unrelated add-on coverage as evidence for Section I
-Own Damage.
+Do not use unrelated add-on coverage as evidence for
+Section I Own Damage.
 
-Do not conclude that accidental collision damage is covered unless
-the retrieved policy evidence actually supports that conclusion.
+Do not conclude that accidental collision damage is covered
+unless the retrieved policy evidence actually supports that
+conclusion.
 
-If the policy evidence does not establish whether the specific
-accident circumstances are covered, state that the coverage
-determination remains unsupported by the available policy evidence.
+If the policy evidence does not establish whether the
+specific accident circumstances are covered, state that
+the coverage determination remains unsupported by the
+available policy evidence.
 
-Keep every finding concise:
+Keep every finding concise.
 
-- finding: one or two short sentences
+Finding:
+one or two short sentences.
 
-- evidence: one or two short sentences
+Evidence:
+one or two short sentences.
 
 Do not invent facts.
-
 Do not infer fraud.
-
 Do not invent policy requirements.
-
 Do not make a payout or approval decision.
 
-For missing_information:
+For missing_information, include only material missing
+information.
 
-include only material missing information.
-
-For contradictions:
-
-include only actual contradictions.
+For contradictions, include only actual contradictions.
 
 Overall status:
 
 - INVALID if a validity problem is established.
-
 - CONCERN if further investigation is needed without
   established invalidity.
-
 - INSUFFICIENT_EVIDENCE if an important determination
   cannot be made.
-
 - VALID only when evidence is sufficient and no validity
   problem exists.
 
@@ -1266,7 +1417,6 @@ EXTRACTED DATA:
 {evidence_text}
 
 Return only the structured InvestigationResult.
-
 """.strip()
 
     final_output_tokens = min(
@@ -1296,7 +1446,7 @@ Return only the structured InvestigationResult.
         max_output_tokens=final_output_tokens,
     )
 
-    _record_usage(
+    record_usage(
         state,
         final_response,
     )
@@ -1306,9 +1456,8 @@ Return only the structured InvestigationResult.
     )
 
     if investigation is None:
-
         raise ValueError(
-            "No structured investigation was returned"
+            "No structured investigation was returned."
         )
 
     return investigation
@@ -1319,9 +1468,8 @@ def investigate_claim(
 ) -> ClaimState:
 
     if state.extracted_data is None:
-
         raise ValueError(
-            "Claim data must be extracted before investigation"
+            "Claim data must be extracted before investigation."
         )
 
     policy_status = (
@@ -1337,34 +1485,34 @@ def investigate_claim(
     )
 
     try:
-
-        investigation = (
-            _run_investigation_model(
-                state,
-                policy_status,
-                license_status,
-            )
+        investigation = run_investigation_model(
+            state,
+            policy_status,
+            license_status,
         )
 
     except Exception as exc:
-
         raise RuntimeError(
             f"Investigation model call failed: {exc}"
         ) from exc
 
     if investigation is None:
-
         state.status = "budget_exceeded"
         state.current_agent = "supervisor"
         state.step_count += 1
         return state
 
-    _apply_deterministic_consistency_checks(
+    apply_deterministic_consistency_checks(
         investigation,
         state,
     )
 
-    _enforce_deterministic_status(
+    clean_missing_information(
+        investigation,
+        state,
+    )   
+
+    enforce_deterministic_status(
         investigation,
         policy_status,
         license_status,
@@ -1375,11 +1523,11 @@ def investigate_claim(
     state.current_agent = "supervisor"
     state.status = "in_progress"
     state.step_count += 1
+
     return state
 
 
 if __name__ == "__main__":
-
     print(
         "Investigator module loaded successfully."
     )

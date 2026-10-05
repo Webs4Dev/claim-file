@@ -1,12 +1,55 @@
 from agents.extractor import extract_claim_data
 from agents.investigator import investigate_claim
-from state.schema import ClaimState
+from state.schema import ClaimDocument, ClaimState
 
 
 def test_investigate_claim():
+    documents = [
+        ClaimDocument(
+            document_type="policy_schedule",
+            file_path="data/sample_claims/claim_001/policy_schedule.pdf",
+            uploaded=True,
+            validity="VALID",
+            required=True,
+        ),
+        ClaimDocument(
+            document_type="driving_license",
+            file_path="data/sample_claims/claim_001/driving_licence.pdf",
+            uploaded=True,
+            validity="VALID",
+            required=True,
+        ),
+        ClaimDocument(
+            document_type="vehicle_registration",
+            file_path="data/sample_claims/claim_001/vehicle_registration.pdf",
+            uploaded=True,
+            validity="VALID",
+            required=True,
+        ),
+        ClaimDocument(
+            document_type="damage_survey_report",
+            file_path="data/sample_claims/claim_001/damage_survey_report.pdf",
+            uploaded=True,
+            validity="VALID",
+            required=True,
+        ),
+        ClaimDocument(
+            document_type="repair_estimate",
+            file_path="data/sample_claims/claim_001/repair_estimate.pdf",
+            uploaded=True,
+            validity="VALID",
+            required=True,
+        ),
+    ]
+
     state = ClaimState(
         claim_id="CLM-001",
-        documents=["data/sample_claims/claim_001.pdf"]
+        documents=[
+            document.file_path
+            for document in documents
+            if document.file_path
+        ],
+        claim_documents=documents,
     )
 
     state = extract_claim_data(state)
@@ -30,6 +73,7 @@ def test_investigate_claim():
     print("\n" + "=" * 60)
     print(f"STEP COUNT: {state.step_count}")
     print("=" * 60)
+
     print("BUDGET USAGE")
     print("=" * 60)
     print(f"Tokens used: {state.token_usage}")
