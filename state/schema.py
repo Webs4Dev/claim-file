@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -10,6 +11,8 @@ ACCIDENT_INFO = "Accident Information"
 DAMAGE_INFO = "Damage Information"
 THIRD_PARTY = "Third-Party Involvement"
 POLICE_FIR = "Police/FIR Information"
+
+MAX_INTERNAL_INVESTIGATIONS = 2
 
 
 InvestigationCategory = Literal[
@@ -59,6 +62,12 @@ DocumentType = Literal[
 DocumentValidity = Literal[
     "VALID",
     "INVALID",
+]
+
+
+HumanDecision = Literal[
+    "APPROVED",
+    "REJECTED",
 ]
 
 
@@ -171,6 +180,7 @@ class DocumentValidationResult(BaseModel):
         default_factory=list
     )
 
+
 class InvestigationFinding(BaseModel):
     category: InvestigationCategory
     status: InvestigationStatus
@@ -222,6 +232,13 @@ class ReviewResult(BaseModel):
     )
 
 
+class HumanApproval(BaseModel):
+    decision: HumanDecision
+    decided_by: str
+    decided_at: datetime
+    reason: str | None = None
+
+
 class ClaimState(BaseModel):
     claim_id: str
     claim_form: ClaimForm = Field(
@@ -236,13 +253,20 @@ class ClaimState(BaseModel):
     pending_documents: list[RequiredDocument] = Field(
         default_factory=list
     )
+    pending_investigation_actions: list[str] = Field(
+        default_factory=list
+    )
     extracted_data: ClaimExtraction | None = None
     document_validation: DocumentValidationResult | None = None
     investigation: InvestigationResult | None = None
     review: ReviewResult | None = None
+    human_approval: HumanApproval | None = None
+    internal_investigation_count: int = 0
     current_agent: str = "supervisor"
     status: ClaimStatus = "pending"
     step_count: int = 0
     token_usage: int = 0
     estimated_cost: float = 0.0
-    workflow_trace: list[dict] = Field(default_factory=list)
+    workflow_trace: list[dict] = Field(
+        default_factory=list
+    )
