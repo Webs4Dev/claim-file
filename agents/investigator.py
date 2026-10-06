@@ -1,4 +1,5 @@
 import json
+
 import re
 
 from datetime import datetime
@@ -45,6 +46,7 @@ FINAL_OUTPUT_TOKEN_LIMIT = 5000
 def parse_date(
     value: str | None,
 ) -> datetime | None:
+
     if not value:
         return None
 
@@ -77,6 +79,7 @@ def parse_date(
 def normalize_text(
     value: str | None,
 ) -> str:
+
     if not value:
         return ""
 
@@ -90,43 +93,49 @@ def normalize_text(
 def normalize_policy_number(
     value: str | None,
 ) -> str:
+
     return normalize_text(value)
 
 
 def normalize_registration_number(
     value: str | None,
 ) -> str:
+
     return normalize_text(value)
 
 
 def normalize_license_number(
     value: str | None,
 ) -> str:
+
     return normalize_text(value)
 
 
 def normalize_name(
     value: str | None,
 ) -> str:
+
     return normalize_text(value)
 
 
 def normalize_vehicle_value(
     value: str | None,
 ) -> str:
+
     return normalize_text(value)
 
 
 def normalize_vehicle_model(
     value: str | None,
 ) -> str:
+
     if not value:
         return ""
 
     value = value.strip().lower()
 
     value = re.sub(
-        r"\([^)]*\)",
+        r"\\([^)]*\\)",
         "",
         value,
     )
@@ -137,6 +146,7 @@ def normalize_vehicle_model(
 def normalize_time(
     value: str | None,
 ) -> str:
+
     if not value:
         return ""
 
@@ -192,6 +202,7 @@ def normalize_time(
 def calculate_policy_validity(
     extraction: ClaimExtraction,
 ) -> InvestigationStatus:
+
     insurance_period = (
         extraction.policy.insurance_period
     )
@@ -244,6 +255,7 @@ def calculate_policy_validity(
 def calculate_license_validity(
     extraction: ClaimExtraction,
 ) -> InvestigationStatus:
+
     expiry_date = (
         extraction.driver.license_expiry_date
     )
@@ -281,6 +293,7 @@ def calculate_license_validity(
 def build_document_validation_context(
     state: ClaimState,
 ) -> str:
+
     if state.document_validation is None:
         return (
             "No document validation result is available."
@@ -294,6 +307,7 @@ def build_document_validation_context(
 def build_pending_investigation_actions(
     state: ClaimState,
 ) -> str:
+
     if not state.pending_investigation_actions:
         return (
             "No specific investigation actions were "
@@ -309,6 +323,7 @@ def build_pending_investigation_actions(
     )
 
     return f"""
+
 The previous Reviewer identified the following unresolved
 investigation actions:
 
@@ -326,6 +341,7 @@ investigation.
 
 Do not treat the requested actions themselves as evidence.
 They are investigation instructions only.
+
 """.strip()
 
 
@@ -334,6 +350,7 @@ def build_investigation_prompt(
     policy_status: InvestigationStatus,
     license_status: InvestigationStatus,
 ) -> str:
+
     extraction = state.extracted_data
 
     if extraction is None:
@@ -363,6 +380,7 @@ def build_investigation_prompt(
 
     if state.review is not None:
         previous_review = f"""
+
 PREVIOUS REVIEW
 
 {state.review.model_dump_json(indent=2)}
@@ -372,9 +390,11 @@ that require re-examination.
 
 Do not treat previous review conclusions as factual
 evidence.
+
 """
 
     return f"""
+
 You are the Investigator agent for a motor insurance claim.
 
 Your task is to investigate the claim using only the
@@ -480,9 +500,15 @@ If a second search is necessary, prioritize:
 - Section I exclusions
 - applicable conditions
 - reasonable-care requirements
-- accident reporting requirements
 - applicable deductible
 - conditions affecting the specific accident
+
+Only investigate accident reporting or FIR requirements if
+the available claim evidence indicates that police/FIR status
+is material to this claim.
+
+Do not search for an FIR requirement merely because the claim
+states that no FIR was filed.
 
 Do not use unrelated add-on sections as evidence for
 Section I Own Damage.
@@ -526,9 +552,11 @@ with a source label, document label, or multiple explicit
 representations of the same policy identifier.
 
 For example, if the claim form contains:
+
 3510203118
 
 and extracted data contains:
+
 3510203118 (claim form); TEST-POL-3510203118
 (supporting documents)
 
@@ -636,8 +664,8 @@ Use deterministic checks for date and time.
 
 If the claim form or supporting documents explicitly provide
 the accident date, time, location, and circumstances and the
-available evidence is internally consistent, this category can
-be VALID.
+available evidence is internally consistent, this category
+can be VALID.
 
 Do not require independent third-party corroboration merely
 because it is not present.
@@ -705,13 +733,19 @@ POLICE/FIR INFORMATION
 
 Use only available evidence.
 
-Do not mark this category VALID merely because the claim
-states that there was no FIR.
+The absence of an FIR is not, by itself, an unresolved
+claim issue.
 
-Do not invent a legal requirement for an FIR.
+If the available evidence explicitly states that no FIR was
+filed and there is no evidence that police reporting is
+material to claim eligibility, treat this category as VALID.
 
-Use INSUFFICIENT_EVIDENCE when an important police/FIR
-fact cannot be established.
+Do not invent a legal or policy requirement for an FIR.
+
+Use INSUFFICIENT_EVIDENCE or CONCERN only when the available
+evidence explicitly establishes that police reporting, an FIR,
+or the absence of one is material to the claim and the issue
+cannot be resolved from the available evidence.
 
 OVERALL STATUS
 
@@ -733,6 +767,10 @@ MISSING INFORMATION
 Include only materially relevant missing information.
 
 A missing optional field is not automatically material.
+
+The absence of an FIR is not material missing information
+unless the available evidence establishes that police/FIR
+reporting affects this claim.
 
 CONTRADICTIONS
 
@@ -766,6 +804,7 @@ EXTRACTED CLAIM DATA
 </extracted_claim_data>
 
 {previous_review}
+
 """.strip()
 
 
@@ -774,7 +813,9 @@ def create_deterministic_finding(
     status: InvestigationStatus,
     extraction: ClaimExtraction,
 ) -> InvestigationFinding:
+
     if category == POLICY_VALIDITY:
+
         if status == "VALID":
             finding = (
                 "The accident date falls within the "
@@ -801,6 +842,7 @@ def create_deterministic_finding(
         )
 
     else:
+
         if status == "VALID":
             finding = (
                 "The driver's licence was unexpired on "
@@ -838,9 +880,11 @@ def create_deterministic_finding(
 def deduplicate_findings(
     findings: list[InvestigationFinding],
 ) -> list[InvestigationFinding]:
+
     unique_findings = {}
 
     for finding in findings:
+
         if finding.category not in unique_findings:
             unique_findings[finding.category] = finding
 
@@ -853,6 +897,7 @@ def add_missing_information(
     investigation: InvestigationResult,
     message: str,
 ) -> None:
+
     if message not in investigation.missing_information:
         investigation.missing_information.append(
             message
@@ -863,6 +908,7 @@ def add_contradiction(
     investigation: InvestigationResult,
     message: str,
 ) -> None:
+
     if message not in investigation.contradictions:
         investigation.contradictions.append(
             message
@@ -875,6 +921,7 @@ def values_are_consistent(
     field_name: str,
     normalizer,
 ) -> bool:
+
     claim_normalized = normalizer(
         claim_value
     )
@@ -893,6 +940,7 @@ def values_are_consistent(
         return claim_normalized in extracted_normalized
 
     if field_name == "Vehicle model":
+
         claim_model = normalize_vehicle_model(
             claim_value
         )
@@ -917,6 +965,7 @@ def check_value_consistency(
     field_name: str,
     normalizer,
 ) -> None:
+
     claim_normalized = normalizer(
         claim_value
     )
@@ -929,12 +978,14 @@ def check_value_consistency(
         claim_normalized
         and extracted_normalized
     ):
+
         if not values_are_consistent(
             claim_value,
             extracted_value,
             field_name,
             normalizer,
         ):
+
             add_contradiction(
                 investigation,
                 (
@@ -949,6 +1000,7 @@ def check_value_consistency(
         claim_normalized
         and not extracted_normalized
     ):
+
         add_missing_information(
             investigation,
             (
@@ -965,7 +1017,9 @@ def check_date_consistency(
     extracted_value: str | None,
     field_name: str,
 ) -> None:
+
     if claim_value and extracted_value:
+
         claim_date = parse_date(
             claim_value
         )
@@ -975,10 +1029,12 @@ def check_date_consistency(
         )
 
         if claim_date and extracted_date:
+
             if (
                 claim_date.date()
                 != extracted_date.date()
             ):
+
                 add_contradiction(
                     investigation,
                     (
@@ -1006,6 +1062,7 @@ def check_time_consistency(
     extracted_value: str | None,
     field_name: str,
 ) -> None:
+
     claim_normalized = normalize_time(
         claim_value
     )
@@ -1018,10 +1075,12 @@ def check_time_consistency(
         claim_normalized
         and extracted_normalized
     ):
+
         if (
             claim_normalized
             != extracted_normalized
         ):
+
             add_contradiction(
                 investigation,
                 (
@@ -1036,6 +1095,7 @@ def check_time_consistency(
         claim_normalized
         and not extracted_normalized
     ):
+
         add_missing_information(
             investigation,
             (
@@ -1050,6 +1110,7 @@ def apply_deterministic_consistency_checks(
     investigation: InvestigationResult,
     state: ClaimState,
 ) -> None:
+
     extraction = state.extracted_data
 
     if extraction is None:
@@ -1126,6 +1187,7 @@ def enforce_deterministic_status(
     license_status: InvestigationStatus,
     extraction: ClaimExtraction,
 ) -> None:
+
     investigation.findings = (
         deduplicate_findings(
             investigation.findings
@@ -1143,12 +1205,15 @@ def enforce_deterministic_status(
     }
 
     for category, status in overrides.items():
+
         if category in findings_by_category:
+
             findings_by_category[
                 category
             ].status = status
 
         else:
+
             investigation.findings.append(
                 create_deterministic_finding(
                     category,
@@ -1161,9 +1226,11 @@ def enforce_deterministic_status(
         policy_status,
         license_status,
     }:
+
         investigation.overall_status = "INVALID"
 
     elif investigation.contradictions:
+
         if investigation.overall_status == "VALID":
             investigation.overall_status = "CONCERN"
 
@@ -1172,6 +1239,7 @@ def record_usage(
     state: ClaimState,
     response,
 ) -> None:
+
     if response.usage is None:
         return
 
@@ -1201,12 +1269,15 @@ def record_usage(
 def execute_policy_tool(
     arguments: str,
 ) -> str:
+
     try:
+
         parsed_arguments = json.loads(
             arguments
         )
 
     except json.JSONDecodeError as exc:
+
         raise ValueError(
             "Policy tool returned invalid arguments."
         ) from exc
@@ -1223,6 +1294,7 @@ def execute_policy_tool(
         not isinstance(query, str)
         or not query.strip()
     ):
+
         raise ValueError(
             "Policy tool query is required."
         )
@@ -1231,11 +1303,13 @@ def execute_policy_tool(
         not isinstance(product, str)
         or not product.strip()
     ):
+
         raise ValueError(
             "Policy tool product is required."
         )
 
     if product != "private_car":
+
         raise ValueError(
             "The current investigation scope supports "
             "private_car only."
@@ -1251,6 +1325,7 @@ def collect_policy_searches(
     state: ClaimState,
     response,
 ) -> list[dict]:
+
     tool_calls = [
         item
         for item in response.output
@@ -1263,6 +1338,7 @@ def collect_policy_searches(
     for tool_call in tool_calls[
         :MAX_POLICY_SEARCHES
     ]:
+
         result = execute_policy_tool(
             tool_call.arguments
         )
@@ -1281,6 +1357,7 @@ def collect_policy_searches(
 def build_policy_evidence_text(
     policy_evidence: list[dict],
 ) -> str:
+
     if not policy_evidence:
         return (
             "No policy search was performed."
@@ -1294,8 +1371,10 @@ def build_policy_evidence_text(
         policy_evidence,
         start=1,
     ):
+
         sections.append(
             f"""
+
 Policy search {index}
 
 Query:
@@ -1305,6 +1384,7 @@ Query:
 Evidence:
 
 {evidence["result"]}
+
 """.strip()
         )
 
@@ -1318,6 +1398,7 @@ def run_investigation_model(
     policy_status: InvestigationStatus,
     license_status: InvestigationStatus,
 ) -> InvestigationResult | None:
+
     if not can_make_model_call(state):
         return None
 
@@ -1386,6 +1467,7 @@ def run_investigation_model(
     )
 
     compact_final_prompt = f"""
+
 Produce the final structured investigation result.
 
 Return exactly 7 findings:
@@ -1456,6 +1538,19 @@ specific accident circumstances are covered, state that
 the coverage determination remains unsupported by the
 available policy evidence.
 
+For Police/FIR Information:
+
+- Do not create an investigation issue merely because no FIR
+  was filed.
+
+- If the evidence states that no FIR was filed and does not
+  establish that an FIR or police report is material to claim
+  eligibility, mark Police/FIR Information as VALID.
+
+- Only mark this category as INSUFFICIENT_EVIDENCE or CONCERN
+  when available evidence establishes a material police/FIR
+  requirement or effect that remains unresolved.
+
 Keep every finding concise.
 
 Finding:
@@ -1504,6 +1599,7 @@ EXTRACTED DATA:
 {evidence_text}
 
 Return only the structured InvestigationResult.
+
 """.strip()
 
     final_output_tokens = min(
@@ -1553,6 +1649,7 @@ Return only the structured InvestigationResult.
 def investigate_claim(
     state: ClaimState,
 ) -> ClaimState:
+
     if state.extracted_data is None:
         raise ValueError(
             "Claim data must be extracted before investigation."
@@ -1571,6 +1668,7 @@ def investigate_claim(
     )
 
     try:
+
         investigation = run_investigation_model(
             state,
             policy_status,
@@ -1578,14 +1676,19 @@ def investigate_claim(
         )
 
     except Exception as exc:
+
         raise RuntimeError(
             f"Investigation model call failed: {exc}"
         ) from exc
 
     if investigation is None:
+
         state.status = "budget_exceeded"
+
         state.current_agent = "supervisor"
+
         state.step_count += 1
+
         return state
 
     apply_deterministic_consistency_checks(
@@ -1601,9 +1704,13 @@ def investigate_claim(
     )
 
     state.investigation = investigation
+
     state.pending_investigation_actions = []
+
     state.current_agent = "supervisor"
+
     state.status = "in_progress"
+
     state.step_count += 1
 
     return state
