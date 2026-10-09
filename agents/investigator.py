@@ -1,7 +1,5 @@
 import json
-
 import re
-
 from datetime import datetime
 
 from openai import OpenAI
@@ -290,6 +288,21 @@ def calculate_license_validity(
     return "INVALID"
 
 
+def has_valid_policy_schedule(
+    state: ClaimState,
+) -> bool:
+
+    for document in state.claim_documents:
+        if (
+            document.document_type == "policy_schedule"
+            and document.uploaded
+            and document.validity == "VALID"
+        ):
+            return True
+
+    return False
+
+
 def build_document_validation_context(
     state: ClaimState,
 ) -> str:
@@ -323,7 +336,6 @@ def build_pending_investigation_actions(
     )
 
     return f"""
-
 The previous Reviewer identified the following unresolved
 investigation actions:
 
@@ -341,7 +353,6 @@ investigation.
 
 Do not treat the requested actions themselves as evidence.
 They are investigation instructions only.
-
 """.strip()
 
 
@@ -380,7 +391,6 @@ def build_investigation_prompt(
 
     if state.review is not None:
         previous_review = f"""
-
 PREVIOUS REVIEW
 
 {state.review.model_dump_json(indent=2)}
@@ -390,11 +400,9 @@ that require re-examination.
 
 Do not treat previous review conclusions as factual
 evidence.
-
 """
 
     return f"""
-
 You are the Investigator agent for a motor insurance claim.
 
 Your task is to investigate the claim using only the
@@ -458,6 +466,24 @@ itself evidence of a contradiction.
 
 Only report a contradiction when the underlying evidence
 actually establishes that two values conflict.
+
+POLICY EVIDENCE
+
+A policy schedule is documentary evidence establishing
+policy identity, policy period, and policy status.
+
+A policy number stated only on the online claim form is a
+claimant-provided assertion. It must not by itself be treated
+as documentary evidence establishing policy validity.
+
+If there is no valid policy schedule, Policy Validity must
+remain INSUFFICIENT_EVIDENCE even if the claim form contains
+a policy number and extracted data contains an insurance
+period.
+
+Do not treat the policy knowledge base as evidence that the
+specific claimant's policy was active. The knowledge base is
+used for policy wording only.
 
 POLICY SEARCH
 
@@ -616,7 +642,14 @@ Consider:
 - policy number
 - insurance period
 - accident date
+- policy schedule evidence
 - policy wording when relevant
+
+A policy number appearing on the online claim form does not
+establish policy validity by itself.
+
+If no valid policy schedule is available, report
+INSUFFICIENT_EVIDENCE.
 
 Do not mark policy validity invalid solely because
 different documents use a source-specific identifier
@@ -768,6 +801,11 @@ Include only materially relevant missing information.
 
 A missing optional field is not automatically material.
 
+If no valid policy schedule is available, include the
+absence of the policy schedule as material missing
+information because policy validity cannot be established
+from the claim form policy number alone.
+
 The absence of an FIR is not material missing information
 unless the available evidence establishes that police/FIR
 reporting affects this claim.
@@ -804,7 +842,6 @@ EXTRACTED CLAIM DATA
 </extracted_claim_data>
 
 {previous_review}
-
 """.strip()
 
 
@@ -831,7 +868,7 @@ def create_deterministic_finding(
         else:
             finding = (
                 "Policy validity could not be established "
-                "from the available dates."
+                "from the available evidence."
             )
 
         evidence = (
@@ -1229,6 +1266,16 @@ def enforce_deterministic_status(
 
         investigation.overall_status = "INVALID"
 
+    elif (
+        policy_status == "INSUFFICIENT_EVIDENCE"
+        or license_status == "INSUFFICIENT_EVIDENCE"
+    ):
+
+        if investigation.overall_status == "VALID":
+            investigation.overall_status = (
+                "INSUFFICIENT_EVIDENCE"
+            )
+
     elif investigation.contradictions:
 
         if investigation.overall_status == "VALID":
@@ -1374,7 +1421,6 @@ def build_policy_evidence_text(
 
         sections.append(
             f"""
-
 Policy search {index}
 
 Query:
@@ -1384,7 +1430,6 @@ Query:
 Evidence:
 
 {evidence["result"]}
-
 """.strip()
         )
 
@@ -1467,7 +1512,6 @@ def run_investigation_model(
     )
 
     compact_final_prompt = f"""
-
 Produce the final structured investigation result.
 
 Return exactly 7 findings:
@@ -1494,6 +1538,11 @@ Policy Validity: {policy_status}
 Driver and Licence Information: {license_status}
 
 Do not override these statuses.
+
+If Policy Validity is INSUFFICIENT_EVIDENCE because no valid
+policy schedule is available, the final Policy Validity finding
+must clearly state that the claim-form policy number alone does
+not establish policy validity.
 
 The previous Reviewer may have supplied investigation
 actions. Those actions are instructions for what to
@@ -1599,7 +1648,6 @@ EXTRACTED DATA:
 {evidence_text}
 
 Return only the structured InvestigationResult.
-
 """.strip()
 
     final_output_tokens = min(
@@ -1655,16 +1703,15 @@ def investigate_claim(
             "Claim data must be extracted before investigation."
         )
 
-    policy_status = (
-        calculate_policy_validity(
-            state.extracted_data
-        )
+    policy_status = calculate_policy_validity(
+        state.extracted_data
     )
 
-    license_status = (
-        calculate_license_validity(
-            state.extracted_data
-        )
+    if not has_valid_policy_schedule(state):
+        policy_status = "INSUFFICIENT_EVIDENCE"
+
+    license_status = calculate_license_validity(
+        state.extracted_data
     )
 
     try:
@@ -1690,6 +1737,49 @@ def investigate_claim(
         state.step_count += 1
 
         return state
+
+    if not has_valid_policy_schedule(state):
+
+        add_missing_information(
+            investigation,
+            (
+                "A valid policy schedule is not available. "
+                "The policy number stated on the online claim "
+                "form alone does not establish the policy period "
+                "or policy status."
+            ),
+        )
+
+        findings_by_category = {
+            finding.category: finding
+            for finding in investigation.findings
+        }
+
+        policy_finding = findings_by_category.get(
+            POLICY_VALIDITY
+        )
+
+        if policy_finding is not None:
+
+            policy_finding.status = (
+                "INSUFFICIENT_EVIDENCE"
+            )
+
+            policy_finding.finding = (
+                "Policy validity cannot be established because "
+                "a valid policy schedule is not available."
+            )
+
+            policy_finding.evidence = (
+                "The online claim form provides a policy number, "
+                "but no valid policy schedule is available to "
+                "establish the policy period."
+            )
+
+        if investigation.overall_status == "VALID":
+            investigation.overall_status = (
+                "INSUFFICIENT_EVIDENCE"
+            )
 
     apply_deterministic_consistency_checks(
         investigation,

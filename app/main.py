@@ -1,6 +1,5 @@
 from pathlib import Path
 from uuid import uuid4
-
 import json
 
 from fastapi import (
@@ -10,12 +9,14 @@ from fastapi import (
     HTTPException,
     UploadFile,
 )
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from approval.human_gate import (
     approve_claim,
     reject_claim,
 )
-from graph.workflow import app
+from graph.workflow import app as workflow_app
 from state.schema import (
     ClaimDocument,
     ClaimForm,
@@ -27,9 +28,7 @@ from state.store import (
 )
 
 
-UPLOAD_DIRECTORY = Path(
-    "data/uploads"
-)
+UPLOAD_DIRECTORY = Path("data/uploads")
 
 UPLOAD_DIRECTORY.mkdir(
     parents=True,
@@ -44,18 +43,20 @@ api = FastAPI(
 )
 
 
-SUPPORTED_DOCUMENT_FIELDS = {
-    "policy_schedule": "policy_schedule",
-    "policy_document": "policy_document",
-    "vehicle_registration": "vehicle_registration",
-    "driving_license": "driving_license",
-    "damage_survey_report": "damage_survey_report",
-    "repair_estimate": "repair_estimate",
-    "repair_invoice": "repair_invoice",
-    "police_report": "police_report",
-    "fir_document": "fir_document",
-    "accident_report": "accident_report",
-}
+api.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class HumanDecisionRequest(BaseModel):
+    decided_by: str
+    reason: str | None = None
 
 
 def save_uploaded_file(
@@ -63,9 +64,7 @@ def save_uploaded_file(
     document_type: str,
     file: UploadFile,
 ) -> str:
-    claim_directory = (
-        UPLOAD_DIRECTORY / claim_id
-    )
+    claim_directory = UPLOAD_DIRECTORY / claim_id
 
     claim_directory.mkdir(
         parents=True,
@@ -92,33 +91,45 @@ def parse_claim_form(
     claim_form: str,
 ) -> ClaimForm:
     try:
-        data = json.loads(
-            claim_form
-        )
+        data = json.loads(claim_form)
     except json.JSONDecodeError as error:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Invalid claim_form JSON: "
-                f"{error}"
-            ),
+            detail=f"Invalid claim_form JSON: {error}",
         )
 
     try:
-        return ClaimForm.model_validate(
-            data
-        )
+        return ClaimForm.model_validate(data)
     except Exception as error:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Invalid claim form: "
-                f"{error}"
-            ),
+            detail=f"Invalid claim form: {error}",
         )
 
 
-def collect_uploaded_documents(
+def collect_initial_documents(
+    policy_schedule: UploadFile | None,
+    vehicle_registration: UploadFile | None,
+    driving_license: UploadFile | None,
+    damage_survey_report: UploadFile | None,
+    repair_estimate: UploadFile | None,
+) -> list[tuple[str, UploadFile]]:
+    uploads = [
+        ("policy_schedule", policy_schedule),
+        ("vehicle_registration", vehicle_registration),
+        ("driving_license", driving_license),
+        ("damage_survey_report", damage_survey_report),
+        ("repair_estimate", repair_estimate),
+    ]
+
+    return [
+        (document_type, file)
+        for document_type, file in uploads
+        if file is not None and file.filename
+    ]
+
+
+def collect_additional_documents(
     policy_schedule: UploadFile | None,
     policy_document: UploadFile | None,
     vehicle_registration: UploadFile | None,
@@ -131,64 +142,28 @@ def collect_uploaded_documents(
     accident_report: UploadFile | None,
 ) -> list[tuple[str, UploadFile]]:
     uploads = [
-        (
-            "policy_schedule",
-            policy_schedule,
-        ),
-        (
-            "policy_document",
-            policy_document,
-        ),
-        (
-            "vehicle_registration",
-            vehicle_registration,
-        ),
-        (
-            "driving_license",
-            driving_license,
-        ),
-        (
-            "damage_survey_report",
-            damage_survey_report,
-        ),
-        (
-            "repair_estimate",
-            repair_estimate,
-        ),
-        (
-            "repair_invoice",
-            repair_invoice,
-        ),
-        (
-            "police_report",
-            police_report,
-        ),
-        (
-            "fir_document",
-            fir_document,
-        ),
-        (
-            "accident_report",
-            accident_report,
-        ),
+        ("policy_schedule", policy_schedule),
+        ("policy_document", policy_document),
+        ("vehicle_registration", vehicle_registration),
+        ("driving_license", driving_license),
+        ("damage_survey_report", damage_survey_report),
+        ("repair_estimate", repair_estimate),
+        ("repair_invoice", repair_invoice),
+        ("police_report", police_report),
+        ("fir_document", fir_document),
+        ("accident_report", accident_report),
     ]
 
     return [
-        (
-            document_type,
-            file,
-        )
+        (document_type, file)
         for document_type, file in uploads
-        if file is not None
-        and file.filename
+        if file is not None and file.filename
     ]
 
 
 def validate_requested_documents(
     claim: ClaimState,
-    uploaded_documents: list[
-        tuple[str, UploadFile]
-    ],
+    uploaded_documents: list[tuple[str, UploadFile]],
 ) -> None:
     requested_types = {
         document.document_type
@@ -201,7 +176,7 @@ def validate_requested_documents(
                 status_code=400,
                 detail=(
                     f"Document type '{document_type}' "
-                    f"was not requested for this claim."
+                    "was not requested for this claim."
                 ),
             )
 
@@ -210,22 +185,16 @@ def remove_existing_document(
     claim: ClaimState,
     document_type: str,
 ) -> None:
-    existing_documents = []
-
-    for document in claim.claim_documents:
-        if document.document_type != document_type:
-            existing_documents.append(
-                document
-            )
-
-    claim.claim_documents = existing_documents
+    claim.claim_documents = [
+        document
+        for document in claim.claim_documents
+        if document.document_type != document_type
+    ]
 
     claim.documents = [
         path
         for path in claim.documents
-        if not Path(path).stem.startswith(
-            document_type
-        )
+        if Path(path).stem != document_type
     ]
 
 
@@ -233,76 +202,93 @@ def clear_uploaded_document_requests(
     claim: ClaimState,
     uploaded_types: list[str],
 ) -> None:
-    uploaded_type_set = set(
-        uploaded_types
-    )
+    uploaded_type_set = set(uploaded_types)
 
     claim.pending_documents = [
         document
         for document in claim.pending_documents
-        if document.document_type
-        not in uploaded_type_set
+        if document.document_type not in uploaded_type_set
     ]
 
 
-@api.get(
-    "/health"
-)
-def health_check():
+def build_public_response(
+    state: ClaimState,
+) -> dict:
     return {
-        "status": "ok"
+        "claim_id": state.claim_id,
+        "claim_form": state.claim_form.model_dump(),
+        "status": state.status,
+        "documents": state.documents,
+        "claim_documents": [
+            document.model_dump()
+            for document in state.claim_documents
+        ],
+        "pending_documents": [
+            document.model_dump()
+            for document in state.pending_documents
+        ],
+        "extracted_data": (
+            state.extracted_data.model_dump()
+            if state.extracted_data
+            else None
+        ),
+        "document_validation": (
+            state.document_validation.model_dump()
+            if state.document_validation
+            else None
+        ),
+        "investigation": (
+            state.investigation.model_dump()
+            if state.investigation
+            else None
+        ),
+        "review": (
+            state.review.model_dump()
+            if state.review
+            else None
+        ),
+        "human_approval": (
+            state.human_approval.model_dump()
+            if state.human_approval
+            else None
+        ),
     }
 
 
-@api.post(
-    "/claims"
-)
+@api.get("/health")
+def health_check():
+    return {
+        "status": "ok",
+        "service": "ClaimFile",
+    }
+
+
+@api.post("/claims")
 def create_claim(
     claim_form: str = Form(...),
-
     policy_schedule: UploadFile | None = File(None),
-    policy_document: UploadFile | None = File(None),
     vehicle_registration: UploadFile | None = File(None),
     driving_license: UploadFile | None = File(None),
     damage_survey_report: UploadFile | None = File(None),
     repair_estimate: UploadFile | None = File(None),
-    repair_invoice: UploadFile | None = File(None),
-    police_report: UploadFile | None = File(None),
-    fir_document: UploadFile | None = File(None),
-    accident_report: UploadFile | None = File(None),
 ):
-    form = parse_claim_form(
-        claim_form
-    )
+    form = parse_claim_form(claim_form)
 
-    uploaded_documents = (
-        collect_uploaded_documents(
-            policy_schedule,
-            policy_document,
-            vehicle_registration,
-            driving_license,
-            damage_survey_report,
-            repair_estimate,
-            repair_invoice,
-            police_report,
-            fir_document,
-            accident_report,
-        )
+    uploaded_documents = collect_initial_documents(
+        policy_schedule,
+        vehicle_registration,
+        driving_license,
+        damage_survey_report,
+        repair_estimate,
     )
 
     if not uploaded_documents:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "At least one document must "
-                "be uploaded."
-            ),
+            detail="At least one document must be uploaded.",
         )
 
-    claim_id = str(
-        uuid4()
-    )
-
+    claim_id = str(uuid4())
     documents = []
 
     for document_type, file in uploaded_documents:
@@ -316,23 +302,16 @@ def create_claim(
         except Exception as error:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"Invalid document type "
-                    f"{document_type}: {error}"
-                ),
+                detail=f"Invalid document type {document_type}: {error}",
             )
 
-        document.file_path = (
-            save_uploaded_file(
-                claim_id,
-                document_type,
-                file,
-            )
+        document.file_path = save_uploaded_file(
+            claim_id,
+            document_type,
+            file,
         )
 
-        documents.append(
-            document
-        )
+        documents.append(document)
 
     document_paths = [
         document.file_path
@@ -347,30 +326,19 @@ def create_claim(
         claim_documents=documents,
     )
 
-    result = app.invoke(
-        state
-    )
+    result = workflow_app.invoke(state)
+    final_state = ClaimState.model_validate(result)
 
-    final_state = ClaimState.model_validate(
-        result
-    )
+    save_claim(final_state)
 
-    save_claim(
-        final_state
-    )
-
-    return final_state.model_dump()
+    return build_public_response(final_state)
 
 
-@api.get(
-    "/claims/{claim_id}"
-)
+@api.get("/claims/{claim_id}")
 def get_claim(
     claim_id: str,
 ):
-    claim = load_claim(
-        claim_id
-    )
+    claim = load_claim(claim_id)
 
     if claim is None:
         raise HTTPException(
@@ -378,15 +346,12 @@ def get_claim(
             detail="Claim not found.",
         )
 
-    return claim.model_dump()
+    return build_public_response(claim)
 
 
-@api.post(
-    "/claims/{claim_id}/documents"
-)
+@api.post("/claims/{claim_id}/documents")
 def upload_documents(
     claim_id: str,
-
     policy_schedule: UploadFile | None = File(None),
     policy_document: UploadFile | None = File(None),
     vehicle_registration: UploadFile | None = File(None),
@@ -398,9 +363,7 @@ def upload_documents(
     fir_document: UploadFile | None = File(None),
     accident_report: UploadFile | None = File(None),
 ):
-    claim = load_claim(
-        claim_id
-    )
+    claim = load_claim(claim_id)
 
     if claim is None:
         raise HTTPException(
@@ -411,34 +374,26 @@ def upload_documents(
     if claim.status != "waiting_for_documents":
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Claim is not waiting for "
-                "additional documents."
-            ),
+            detail="Claim is not waiting for additional documents.",
         )
 
-    uploaded_documents = (
-        collect_uploaded_documents(
-            policy_schedule,
-            policy_document,
-            vehicle_registration,
-            driving_license,
-            damage_survey_report,
-            repair_estimate,
-            repair_invoice,
-            police_report,
-            fir_document,
-            accident_report,
-        )
+    uploaded_documents = collect_additional_documents(
+        policy_schedule,
+        policy_document,
+        vehicle_registration,
+        driving_license,
+        damage_survey_report,
+        repair_estimate,
+        repair_invoice,
+        police_report,
+        fir_document,
+        accident_report,
     )
 
     if not uploaded_documents:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Upload at least one of the "
-                "requested documents."
-            ),
+            detail="Upload at least one of the requested documents.",
         )
 
     validate_requested_documents(
@@ -467,17 +422,9 @@ def upload_documents(
             required=True,
         )
 
-        claim.documents.append(
-            file_path
-        )
-
-        claim.claim_documents.append(
-            document
-        )
-
-        uploaded_types.append(
-            document_type
-        )
+        claim.documents.append(file_path)
+        claim.claim_documents.append(document)
+        uploaded_types.append(document_type)
 
     clear_uploaded_document_requests(
         claim,
@@ -492,30 +439,20 @@ def upload_documents(
     claim.current_agent = "supervisor"
     claim.status = "in_progress"
 
-    result = app.invoke(
-        claim
-    )
+    result = workflow_app.invoke(claim)
+    final_state = ClaimState.model_validate(result)
 
-    final_state = ClaimState.model_validate(
-        result
-    )
+    save_claim(final_state)
 
-    save_claim(
-        final_state
-    )
-
-    return final_state.model_dump()
+    return build_public_response(final_state)
 
 
-@api.post(
-    "/claims/{claim_id}/approve"
-)
+@api.post("/claims/{claim_id}/approve")
 def approve(
     claim_id: str,
+    decision: HumanDecisionRequest,
 ):
-    claim = load_claim(
-        claim_id
-    )
+    claim = load_claim(claim_id)
 
     if claim is None:
         raise HTTPException(
@@ -525,7 +462,9 @@ def approve(
 
     try:
         claim = approve_claim(
-            claim
+            claim,
+            decision.decided_by,
+            decision.reason,
         )
     except ValueError as error:
         raise HTTPException(
@@ -533,22 +472,17 @@ def approve(
             detail=str(error),
         )
 
-    save_claim(
-        claim
-    )
+    save_claim(claim)
 
-    return claim.model_dump()
+    return build_public_response(claim)
 
 
-@api.post(
-    "/claims/{claim_id}/reject"
-)
+@api.post("/claims/{claim_id}/reject")
 def reject(
     claim_id: str,
+    decision: HumanDecisionRequest,
 ):
-    claim = load_claim(
-        claim_id
-    )
+    claim = load_claim(claim_id)
 
     if claim is None:
         raise HTTPException(
@@ -558,7 +492,9 @@ def reject(
 
     try:
         claim = reject_claim(
-            claim
+            claim,
+            decision.decided_by,
+            decision.reason,
         )
     except ValueError as error:
         raise HTTPException(
@@ -566,11 +502,9 @@ def reject(
             detail=str(error),
         )
 
-    save_claim(
-        claim
-    )
+    save_claim(claim)
 
-    return claim.model_dump()
+    return build_public_response(claim)
 
 
 app = api

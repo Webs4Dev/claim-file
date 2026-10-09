@@ -9,8 +9,115 @@ from state.budget import budget_exceeded
 from state.schema import (
     MAX_INTERNAL_INVESTIGATIONS,
     ClaimState,
+    RequiredDocument,
 )
 from state.store import save_snapshot
+
+
+DOCUMENT_REQUEST_DETAILS = {
+    "policy_schedule": {
+        "description": (
+            "Policy schedule showing the policy number, insured vehicle, "
+            "and insurance period."
+        ),
+        "reason": (
+            "Required to establish the policy identity and policy period "
+            "for the claim."
+        ),
+    },
+    "vehicle_registration": {
+        "description": (
+            "Vehicle registration document showing the registered vehicle "
+            "details."
+        ),
+        "reason": (
+            "Required to verify the insured vehicle information."
+        ),
+    },
+    "driving_license": {
+        "description": (
+            "Driving licence document showing the driver's licence details."
+        ),
+        "reason": (
+            "Required to verify the driver's licence information."
+        ),
+    },
+    "damage_survey_report": {
+        "description": (
+            "Damage survey report describing the observed vehicle damage."
+        ),
+        "reason": (
+            "Required to establish the reported vehicle damage."
+        ),
+    },
+}
+
+
+def build_pending_documents(
+    state: ClaimState,
+) -> list[RequiredDocument]:
+    validation = state.document_validation
+
+    if validation is None:
+        return []
+
+    pending_documents = []
+    added_types = set()
+
+    for document_type in validation.missing_documents:
+        if document_type in added_types:
+            continue
+
+        details = DOCUMENT_REQUEST_DETAILS.get(
+            document_type,
+            {
+                "description": f"Required {document_type} document.",
+                "reason": (
+                    "This document is required to continue processing "
+                    "the claim."
+                ),
+            },
+        )
+
+        pending_documents.append(
+            RequiredDocument(
+                document_type=document_type,
+                description=details["description"],
+                reason=details["reason"],
+            )
+        )
+
+        added_types.add(document_type)
+
+    for document_type in validation.invalid_documents:
+        if document_type in added_types:
+            continue
+
+        details = DOCUMENT_REQUEST_DETAILS.get(
+            document_type,
+            {
+                "description": f"Replacement {document_type} document.",
+                "reason": (
+                    "The submitted document was invalid and a usable "
+                    "replacement is required."
+                ),
+            },
+        )
+
+        pending_documents.append(
+            RequiredDocument(
+                document_type=document_type,
+                description=details["description"],
+                reason=(
+                    "The submitted document was invalid. "
+                    + details["reason"]
+                ),
+            )
+        )
+
+        added_types.add(document_type)
+
+    return pending_documents
 
 
 def add_trace(
@@ -38,6 +145,12 @@ def supervisor(
         return add_trace(state, "supervisor")
 
     if state.status == "waiting_for_documents":
+        if (
+            state.document_validation is not None
+            and not state.document_validation.all_required_documents_present
+        ):
+            state.pending_documents = build_pending_documents(state)
+
         state.current_agent = "supervisor"
         return add_trace(state, "supervisor")
 
@@ -59,9 +172,12 @@ def supervisor(
         return add_trace(state, "supervisor")
 
     if not state.document_validation.all_required_documents_present:
+        state.pending_documents = build_pending_documents(state)
         state.status = "waiting_for_documents"
         state.current_agent = "supervisor"
         return add_trace(state, "supervisor")
+
+    state.pending_documents = []
 
     if state.extracted_data is None:
         state.current_agent = "extractor"
