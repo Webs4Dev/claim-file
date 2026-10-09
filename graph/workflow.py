@@ -6,11 +6,7 @@ from agents.reviewer import review_claim
 from agents.validator import validate_documents
 from graph.routing import route_supervisor
 from state.budget import budget_exceeded
-from state.schema import (
-    MAX_INTERNAL_INVESTIGATIONS,
-    ClaimState,
-    RequiredDocument,
-)
+from state.schema import ClaimState, RequiredDocument
 from state.store import save_snapshot
 
 
@@ -154,6 +150,10 @@ def supervisor(
         state.current_agent = "supervisor"
         return add_trace(state, "supervisor")
 
+    if state.status == "needs_internal_review":
+        state.current_agent = "supervisor"
+        return add_trace(state, "supervisor")
+
     if state.status == "human_approval":
         state.current_agent = "supervisor"
         return add_trace(state, "supervisor")
@@ -206,18 +206,10 @@ def supervisor(
             state.review.required_actions.copy()
         )
 
-        if (
-            state.internal_investigation_count
-            < MAX_INTERNAL_INVESTIGATIONS
-        ):
-            state.internal_investigation_count += 1
-            state.investigation = None
-            state.review = None
-            state.status = "in_progress"
-            state.current_agent = "investigator"
-            return add_trace(state, "supervisor")
-
-        state.status = "human_approval"
+        # A reviewer request for internal work must not become a claimant
+        # approval task. Preserve the result and actions for an internal
+        # reviewer or a deliberate later resume.
+        state.status = "needs_internal_review"
         state.current_agent = "supervisor"
         return add_trace(state, "supervisor")
 

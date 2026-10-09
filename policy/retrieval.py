@@ -347,6 +347,15 @@ def detect_query_intent(
 
     query_text = normalize_text(query)
 
+    # Section I is the policy's own-damage section. Treat it as a strong
+    # signal even when the question also names a deductible or condition.
+    if (
+        "section i" in query_text
+        or "own damage" in query_text
+        or "own-damage" in query_text
+    ):
+        return "own_damage"
+
     if (
         "third party" in query_text
         or "third-party" in query_text
@@ -381,6 +390,28 @@ def detect_scope(
     intent: str,
 ) -> str:
     query_text = normalize_text(query)
+
+    # Scope identifies the policy section. A query can also contain a
+    # subtopic such as "deductible" or "conditions"; that must not move it
+    # out of Section I and into a different retrieval universe.
+    if (
+        "section i" in query_text
+        or "own damage" in query_text
+        or "own-damage" in query_text
+        or (
+            intent == "own_damage"
+            and any(
+                term in query_text
+                for term in (
+                    "collision",
+                    "accidental damage",
+                    "loss or damage",
+                    "insured vehicle",
+                )
+            )
+        )
+    ):
+        return "own_damage"
 
     if (
         "personal accident" in query_text
@@ -968,20 +999,60 @@ def build_query_variants(
     ]
 
     if intent == "own_damage":
-        variants.extend(
-            [
-                (
-                    f"{normalized_query} "
-                    "Section I Own Damage "
-                    "loss or damage to the vehicle insured"
-                ),
-                (
-                    f"{normalized_query} "
-                    "Section I exclusions conditions "
-                    "deductible reasonable care"
-                ),
-            ]
+        variants.append(
+            (
+                f"{normalized_query} "
+                "Section I Own Damage accidental loss or damage "
+                "to the insured vehicle"
+            )
         )
+
+        query_text = normalize_text(normalized_query)
+
+        if any(
+            term in query_text
+            for term in (
+                "exclusion",
+                "exclusions",
+                "general exception",
+                "not covered",
+            )
+        ):
+            variants.append(
+                (
+                    f"{normalized_query} "
+                    "Section I Own Damage exclusions general exceptions "
+                    "what is not covered"
+                )
+            )
+
+        if any(
+            term in query_text
+            for term in (
+                "condition",
+                "conditions",
+                "reasonable care",
+                "claim condition",
+            )
+        ):
+            variants.append(
+                (
+                    f"{normalized_query} "
+                    "Section I Own Damage conditions reasonable care "
+                    "conditions when a claim arises"
+                )
+            )
+
+        if (
+            "deductible" in query_text
+            or "excess" in query_text
+        ):
+            variants.append(
+                (
+                    f"{normalized_query} "
+                    "Section I Own Damage deductible excess policy schedule"
+                )
+            )
 
     elif intent == "third_party":
         variants.append(
@@ -1182,11 +1253,27 @@ def merge_candidates(
             candidate
         )
 
-        merged[key] = {
-            **candidate,
-            "bm25_score": 0.0,
-            "bm25_normalized": 0.0,
-        }
+        if key not in merged:
+            merged[key] = {
+                **candidate,
+                "bm25_score": 0.0,
+                "bm25_normalized": 0.0,
+            }
+            continue
+
+        # A chunk may be returned for several query variants. Keep the best
+        # semantic match instead of retaining whichever variant was searched
+        # first (usually the least specific original query).
+        existing = merged[key]
+
+        if candidate.get(
+            "chroma_score",
+            0.0,
+        ) > existing.get(
+            "chroma_score",
+            0.0,
+        ):
+            existing.update(candidate)
 
     for candidate in (
         bm25_candidates

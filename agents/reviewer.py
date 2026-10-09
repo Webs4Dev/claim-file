@@ -1,4 +1,6 @@
 from openai import OpenAI
+from pydantic import ValidationError
+import logging
 
 from config import OPENAI_API_KEY, OPENAI_MODEL
 from state.budget import (
@@ -13,6 +15,47 @@ from state.schema import ClaimState, ReviewResult
 client = OpenAI(
     api_key=OPENAI_API_KEY
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+REVIEW_OUTPUT_TOKEN_CAP = 2400
+
+RETRY_REVIEW_ACTION = (
+    "Retry the review and have an internal reviewer verify the claim "
+    "using the existing investigation and evidence. Do not request "
+    "documents from the claimant because the Reviewer response was "
+    "incomplete or malformed."
+)
+
+
+def strict_response_schema() -> dict:
+    """Build an OpenAI strict JSON Schema from the Pydantic model.
+
+    The Responses API requires every object to reject undeclared
+    properties and to list every declared property as required when
+    ``strict`` is enabled. Pydantic omits both for defaulted fields.
+    """
+    schema = ReviewResult.model_json_schema()
+
+    def make_objects_closed(node) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object" or "properties" in node:
+                node["additionalProperties"] = False
+                node["required"] = list(
+                    node.get("properties", {}).keys()
+                )
+
+            for value in node.values():
+                make_objects_closed(value)
+
+        elif isinstance(node, list):
+            for item in node:
+                make_objects_closed(item)
+
+    make_objects_closed(schema)
+    return schema
 
 
 def build_review_prompt(
@@ -392,6 +435,13 @@ Provide a short neutral summary.
 The summary must not introduce facts that are absent from the
 investigation.
 
+Keep the complete result concise:
+
+- summary: at most two sentences
+- concerns: at most three items
+- required_actions: at most three items
+- required_documents: at most three items
+
 19. OUTPUT
 
 Return only the structured ReviewResult.
@@ -404,18 +454,22 @@ def _record_usage(
     state: ClaimState,
     response,
 ) -> None:
-    if response.usage is None:
+    usage = getattr(response, "usage", None)
+
+    if usage is None:
         return
 
-    input_tokens = (
-        response.usage.input_tokens
-        or 0
-    )
+    input_tokens = getattr(
+        usage,
+        "input_tokens",
+        None,
+    ) or 0
 
-    output_tokens = (
-        response.usage.output_tokens
-        or 0
-    )
+    output_tokens = getattr(
+        usage,
+        "output_tokens",
+        None,
+    ) or 0
 
     cost = calculate_cost(
         input_tokens,
@@ -428,6 +482,50 @@ def _record_usage(
         output_tokens,
         cost,
     )
+
+
+def _fallback_review() -> ReviewResult:
+    return ReviewResult(
+        status="NEEDS_INVESTIGATION",
+        summary=(
+            "The Reviewer response was incomplete or malformed, so "
+            "the claim could not be safely reviewed. No claimant "
+            "documents are requested."
+        ),
+        concerns=[
+            (
+                "The automated review could not be completed from a "
+                "valid structured response."
+            )
+        ],
+        required_actions=[RETRY_REVIEW_ACTION],
+        required_documents=[],
+    )
+
+
+def _extract_response_text(response) -> str | None:
+    output_text = getattr(response, "output_text", None)
+
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text
+
+    chunks = []
+
+    for item in getattr(response, "output", None) or []:
+        if getattr(item, "type", None) != "message":
+            continue
+
+        for content in getattr(item, "content", None) or []:
+            if getattr(content, "type", None) != "output_text":
+                continue
+
+            text = getattr(content, "text", None)
+
+            if isinstance(text, str) and text:
+                chunks.append(text)
+
+    combined = "".join(chunks).strip()
+    return combined or None
 
 
 def review_claim(
@@ -443,8 +541,9 @@ def review_claim(
         state.current_agent = "supervisor"
         return state
 
-    allowed_output_tokens = max_output_tokens(
-        state
+    allowed_output_tokens = min(
+        max_output_tokens(state),
+        REVIEW_OUTPUT_TOKEN_CAP,
     )
 
     if allowed_output_tokens <= 0:
@@ -452,33 +551,59 @@ def review_claim(
         state.current_agent = "supervisor"
         return state
 
-    response = client.responses.parse(
-        model=OPENAI_MODEL,
-        input=[
-            {
-                "role": "system",
-                "content": build_review_prompt(
-                    state
-                ),
-            }
-        ],
-        text_format=ReviewResult,
-        max_output_tokens=allowed_output_tokens,
-    )
-
-    _record_usage(
-        state,
-        response,
-    )
-
-    review = response.output_parsed
-
-    if review is None:
-        raise ValueError(
-            "No structured review was returned."
+    try:
+        response = client.responses.create(
+            model=OPENAI_MODEL,
+            input=[
+                {
+                    "role": "system",
+                    "content": build_review_prompt(state),
+                }
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "ReviewResult",
+                    "schema": strict_response_schema(),
+                    "strict": True,
+                }
+            },
+            max_output_tokens=allowed_output_tokens,
         )
 
-    state.review = review
+        _record_usage(state, response)
+
+        if getattr(response, "status", None) != "completed":
+            logger.warning(
+                "Reviewer response was not completed: status=%s, "
+                "incomplete_details=%s",
+                getattr(response, "status", None),
+                getattr(response, "incomplete_details", None),
+            )
+            state.review = _fallback_review()
+        else:
+            response_text = _extract_response_text(response)
+
+            if response_text is None:
+                logger.warning(
+                    "Reviewer completed without structured output text."
+                )
+                state.review = _fallback_review()
+            else:
+                try:
+                    state.review = ReviewResult.model_validate_json(
+                        response_text
+                    )
+                except (ValidationError, ValueError, TypeError) as exc:
+                    logger.warning(
+                        "Reviewer returned invalid structured output: %s",
+                        exc,
+                    )
+                    state.review = _fallback_review()
+
+    except Exception:
+        logger.exception("Reviewer request failed.")
+        state.review = _fallback_review()
     state.current_agent = "supervisor"
     state.status = "in_progress"
     state.step_count += 1

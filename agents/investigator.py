@@ -25,10 +25,7 @@ from state.schema import (
     InvestigationStatus,
 )
 
-from tools.policy import (
-    POLICY_SEARCH_TOOL,
-    search_policy,
-)
+from tools.policy import search_policy
 
 
 client = OpenAI(
@@ -36,7 +33,7 @@ client = OpenAI(
 )
 
 
-MAX_POLICY_SEARCHES = 2
+MAX_POLICY_SEARCHES = 3
 
 FINAL_OUTPUT_TOKEN_LIMIT = 5000
 
@@ -1368,32 +1365,86 @@ def execute_policy_tool(
     )
 
 
-def collect_policy_searches(
+def build_policy_search_queries(
     state: ClaimState,
-    response,
-) -> list[dict]:
+) -> list[str]:
+    """Create a complete, non-overlapping evidence plan.
 
-    tool_calls = [
-        item
-        for item in response.output
-        if item.type == "function_call"
-        and item.name == "search_policy"
+    Coverage, exclusions, and deductibles are separate policy questions.
+    Keeping them separate prevents a deductible term from pulling the whole
+    retrieval operation away from the Section I evidence needed to assess an
+    own-damage collision.
+    """
+    extraction = state.extracted_data
+
+    if extraction is None:
+        return []
+
+    circumstances = (
+        extraction.accident.description
+        or state.claim_form.accident_description
+        or "the reported accident"
+    ).strip()
+
+    damage = (
+        extraction.damage.description
+        or state.claim_form.damage_description
+        or "damage to the insured vehicle"
+    ).strip()
+
+    return [
+        (
+            "Section I Own Damage coverage: retrieve the operative wording "
+            "for accidental loss of or damage to the insured vehicle caused "
+            f"by these circumstances: {circumstances}. "
+            f"The reported damage is: {damage}."
+        ),
+        (
+            "Section I Own Damage exclusions, general exceptions, and "
+            "conditions: retrieve provisions that could affect a claim for "
+            f"this accident: {circumstances}. Include any reasonable-care "
+            "or claim-condition provisions that apply."
+        ),
+        (
+            "Section I Own Damage deductible or excess and endorsements: "
+            "retrieve the applicable deductible/excess wording and any "
+            "endorsement provisions that can affect an accidental collision "
+            f"claim for: {circumstances}."
+        ),
     ]
 
+
+def collect_policy_searches(
+    state: ClaimState,
+) -> list[dict]:
+    """Run the required policy searches without delegating query choice.
+
+    The prior implementation relied on a model to select up to two tool
+    calls. It routinely combined exclusions, conditions, deductibles, and
+    endorsements into one query, so the retrieval ranker selected evidence
+    for only one of those subjects.
+    """
     policy_evidence = []
 
-    for tool_call in tool_calls[
+    for query in build_policy_search_queries(state)[
         :MAX_POLICY_SEARCHES
     ]:
+        arguments = {
+            "query": query,
+            "product": "private_car",
+        }
 
-        result = execute_policy_tool(
-            tool_call.arguments
-        )
+        try:
+            result = search_policy(**arguments)
+        except Exception as exc:
+            result = (
+                "Policy search was unavailable for this question: "
+                f"{exc}"
+            )
 
         policy_evidence.append(
             {
-                "call_id": tool_call.call_id,
-                "arguments": tool_call.arguments,
+                "arguments": json.dumps(arguments),
                 "result": result,
             }
         )
@@ -1447,12 +1498,6 @@ def run_investigation_model(
     if not can_make_model_call(state):
         return None
 
-    prompt = build_investigation_prompt(
-        state,
-        policy_status,
-        license_status,
-    )
-
     allowed_output_tokens = max_output_tokens(
         state
     )
@@ -1460,38 +1505,9 @@ def run_investigation_model(
     if allowed_output_tokens <= 0:
         return None
 
-    response = client.responses.create(
-        model=OPENAI_MODEL,
-        input=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a conservative motor insurance "
-                    "claim investigator. "
-                    "Use the policy search tool only when "
-                    "specific policy wording must be verified."
-                ),
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
-        tools=[
-            POLICY_SEARCH_TOOL
-        ],
-        max_output_tokens=allowed_output_tokens,
-    )
-
-    record_usage(
-        state,
-        response,
-    )
-
-    policy_evidence = collect_policy_searches(
-        state,
-        response,
-    )
+    # Search before the structured investigation call. The policy evidence
+    # plan is deterministic, complete, and uses the actual claim facts.
+    policy_evidence = collect_policy_searches(state)
 
     if budget_exceeded(state):
         return None
@@ -1543,6 +1559,16 @@ If Policy Validity is INSUFFICIENT_EVIDENCE because no valid
 policy schedule is available, the final Policy Validity finding
 must clearly state that the claim-form policy number alone does
 not establish policy validity.
+
+When a valid policy schedule is available, do not list the policy
+schedule, its policy identity details, or its policy period as
+missing information. The schedule establishes policy status.
+
+The policy knowledge base, rather than a replacement schedule from
+the claimant, is the source for policy wording such as Section I
+coverage, exclusions, conditions, deductibles, and endorsements.
+If that wording cannot be retrieved, describe the missing policy
+wording precisely; do not call it missing policy-schedule details.
 
 The previous Reviewer may have supplied investigation
 actions. Those actions are instructions for what to

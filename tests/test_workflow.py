@@ -1,4 +1,4 @@
-from graph.workflow import build_workflow
+from graph.workflow import app
 from state.schema import ClaimState
 
 
@@ -6,7 +6,7 @@ PDF_PATH = "data/sample_claims/claim_001.pdf"
 
 
 def main():
-    workflow = build_workflow()
+    workflow = app
 
     state = ClaimState(
         claim_id="test-workflow-001",

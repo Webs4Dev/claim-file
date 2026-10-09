@@ -12,6 +12,7 @@ def route_supervisor(
 
     if state.status in {
         "waiting_for_documents",
+        "needs_internal_review",
         "human_approval",
         "complete",
         "terminated",

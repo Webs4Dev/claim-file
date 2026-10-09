@@ -38,6 +38,7 @@ ClaimStatus = Literal[
     "pending",
     "in_progress",
     "waiting_for_documents",
+    "needs_internal_review",
     "budget_exceeded",
     "human_approval",
     "complete",
