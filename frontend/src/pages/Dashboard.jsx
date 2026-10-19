@@ -30,9 +30,8 @@ const FILTERS = {
 };
 
 const SOURCE_NOTICE = {
-  demo: "Demo mode: the backend has no claims-list endpoint and no claims were submitted from this browser. These sample rows are not real claims.",
-  local:
-    "The backend has no claims-list endpoint, so this list shows claims submitted from this browser.",
+  demo: "The claims service is unavailable. These sample rows are not real claims.",
+  local: "The claims service is unavailable. Showing claims submitted from this browser only.",
 };
 
 const submittedAt = (c) => new Date(c.created_at || c.submitted_at || 0).getTime() || 0;

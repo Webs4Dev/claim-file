@@ -3,6 +3,7 @@ const API_BASE = (
 ).replace(/\/$/, "");
 
 const REQUEST_TIMEOUT_MS = 20000;
+const SUBMISSION_KEY_STORAGE = "claimfile.pendingSubmissionKey";
 
 export const getApiBase = () => API_BASE;
 
@@ -81,12 +82,47 @@ function appendFiles(body, files) {
   });
 }
 
+function createUuid() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    return (character === "x" ? random : (random & 0x3) | 0x8).toString(16);
+  });
+}
+
+function getSubmissionKey() {
+  try {
+    let key = localStorage.getItem(SUBMISSION_KEY_STORAGE);
+    if (!key) {
+      key = createUuid();
+      localStorage.setItem(SUBMISSION_KEY_STORAGE, key);
+    }
+    return key;
+  } catch {
+    return createUuid();
+  }
+}
+
 export async function createClaim(form, files) {
   const body = new FormData();
   body.append("claim_form", JSON.stringify(form));
   appendFiles(body, files);
-  return apiRequest("/claims", { method: "POST", body });
+  const key = getSubmissionKey();
+  const result = await apiRequest("/claims", {
+    method: "POST",
+    body,
+    headers: { "Idempotency-Key": key },
+  });
+  try {
+    localStorage.removeItem(SUBMISSION_KEY_STORAGE);
+  } catch {
+    /* storage unavailable - the server still enforces this request key */
+  }
+  return result;
 }
+
+export const retryClaim = (id) =>
+  apiRequest(`/claims/${encodeURIComponent(id)}/retry`, { method: "POST" });
 
 export async function uploadAdditionalDocuments(id, files) {
   const body = new FormData();
