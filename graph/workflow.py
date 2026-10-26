@@ -7,7 +7,7 @@ from agents.validator import validate_documents
 from graph.routing import route_supervisor
 from state.budget import budget_exceeded
 from state.schema import ClaimState, RequiredDocument
-from state.store import save_snapshot
+from state.store import save_claim, save_snapshot
 
 
 DOCUMENT_REQUEST_DETAILS = {
@@ -263,6 +263,7 @@ def snapshot_node(
 ) -> ClaimState:
     add_trace(state, "snapshot")
     save_snapshot(state)
+    save_claim(state)
     return state
 
 

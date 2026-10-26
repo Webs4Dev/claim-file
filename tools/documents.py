@@ -3,6 +3,14 @@ from pathlib import Path
 import pymupdf
 
 
+# Expand ligatures such as "ﬁ" into plain letters so extracted text matches
+# keyword searches ("influence", not "inﬂuence").
+PDF_TEXT_FLAGS = (
+    pymupdf.TEXTFLAGS_TEXT
+    & ~pymupdf.TEXT_PRESERVE_LIGATURES
+)
+
+
 SUPPORTED_DOCUMENT_EXTENSIONS = {
     ".pdf",
     ".txt",
@@ -32,7 +40,7 @@ def read_pdf(
 
         for page in document:
             pages.append(
-                page.get_text()
+                page.get_text(flags=PDF_TEXT_FLAGS)
             )
 
         return "\n".join(pages)

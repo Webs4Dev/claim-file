@@ -183,6 +183,18 @@ In particular, extract:
 
 - policy number
 - insurance period
+- insured declared value (IDV)
+- compulsory deductible
+- voluntary deductible
+- add-on covers listed as included in the policy
+
+Copy IDV and deductible values as written in the source, including
+the currency and any qualifier, for example "₹ 1,000 per claim" or
+"NIL". Do not calculate or total them.
+
+For add-on covers, list each cover the schedule shows as included,
+using its code and name when given, for example "TA01 - Depreciation
+Reimbursement". Do not list covers the schedule shows as not opted.
 
 If the claim form contains a policy number, extract it even when
 the supporting policy document does not repeat it.
@@ -236,6 +248,10 @@ Extract:
 
 Preserve the source wording where possible.
 
+Keep every stated circumstance in the description, including speed,
+road conditions, alcohol or drug test results, and police findings.
+Do not shorten the description by dropping such details.
+
 Do not infer circumstances that are not explicitly stated.
 
 
@@ -247,6 +263,20 @@ Extract:
 - licence number
 - licence expiry date
 - authorized vehicle types
+- condition at the time of the accident
+- whether intoxication was reported
+
+condition_at_accident: copy any stated driver condition verbatim,
+such as alcohol or drug influence, a breath-analyser or blood-alcohol
+result, or an officer's or surveyor's observation. Use null when no
+source describes the driver's condition.
+
+intoxication_reported:
+- true only when a source states the driver was under the influence
+  of alcohol or drugs, or records a test result above the legal limit;
+- false when a source explicitly states the driver was not
+  intoxicated;
+- null when no source mentions it.
 
 Extract claim-form values when present.
 
@@ -356,6 +386,15 @@ values:
 - do not hide the contradiction.
 
 The Investigator is responsible for investigating contradictions.
+
+
+For each supporting document, add one document_identifiers entry
+with its document_type and the policy number, vehicle registration
+number, and driver licence number exactly as printed in THAT
+document. Use null for an identifier the document does not show.
+Never copy a value into an entry from the claim form or from another
+document. These entries let the Investigator detect documents that
+disagree with each other.
 
 
 13. NO CROSS-CONTAMINATION
