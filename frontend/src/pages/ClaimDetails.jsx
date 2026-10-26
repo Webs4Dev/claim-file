@@ -233,15 +233,21 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify, onChange
         </div>
       )}
 
-      {isReviewer && claim.status === "human_approval" && (
+      {isReviewer && REVIEW_STATUSES.includes(claim.status) && (
         <section className="panel decision-panel">
           <div className="panel-heading">
             <div>
               <h2>Human review decision</h2>
               <p>
-                Automated review recommends{" "}
-                <strong>{humanize(claim.review?.status) || "a decision"}</strong>. Approving
-                completes the claim; rejecting closes it. Recorded as {user.name}.
+                {claim.status === "human_approval" ? (
+                  <>
+                    Automated review recommends{" "}
+                    <strong>{humanize(claim.review?.status) || "a decision"}</strong>.
+                  </>
+                ) : (
+                  "Automated assessment could not finish this claim. Decide it yourself, or rerun processing below."
+                )}{" "}
+                Approving completes the claim; rejecting closes it. Recorded as {user.name}.
               </p>
             </div>
           </div>

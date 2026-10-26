@@ -26,6 +26,13 @@ def test_reject_moves_claim_to_terminated():
     assert claim.human_approval.decision == "REJECTED"
 
 
+@pytest.mark.parametrize("status", ["needs_internal_review", "budget_exceeded"])
+def test_stalled_claims_can_be_decided(status):
+    claim = reject_claim(awaiting_claim(status), "Asha Rao", "Cannot verify the loss.")
+
+    assert claim.status == "terminated"
+
+
 @pytest.mark.parametrize("decide", [approve_claim, reject_claim])
 def test_decision_requires_human_approval_status(decide):
     with pytest.raises(ValueError):
