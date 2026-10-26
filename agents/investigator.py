@@ -16,6 +16,7 @@ from state.budget import (
 from state.cost import calculate_cost
 
 from state.schema import (
+    ACCIDENT_INFO,
     DRIVER_LICENCE,
     POLICY_VALIDITY,
     ClaimExtraction,
@@ -1214,6 +1215,125 @@ def apply_deterministic_consistency_checks(
         normalize_vehicle_value,
     )
 
+    check_document_identifiers(
+        investigation,
+        state,
+    )
+
+
+def check_document_identifiers(
+    investigation: InvestigationResult,
+    state: ClaimState,
+) -> None:
+    """Compare each document's own identifiers with the claim form.
+
+    The merged extraction keeps one value per field, so a document that
+    disagrees with the rest is only visible here.
+    """
+    extraction = state.extracted_data
+    claim_form = state.claim_form
+
+    checks = [
+        (
+            "Policy number",
+            claim_form.policy_number,
+            "policy_number",
+            normalize_policy_number,
+        ),
+        (
+            "Vehicle registration number",
+            claim_form.vehicle_registration_number,
+            "vehicle_registration_number",
+            normalize_registration_number,
+        ),
+        (
+            "Driver licence number",
+            claim_form.driver_license_number,
+            "driver_license_number",
+            normalize_license_number,
+        ),
+    ]
+
+    for identifiers in extraction.document_identifiers:
+        for field_name, claim_value, attribute, normalizer in checks:
+            document_value = getattr(identifiers, attribute)
+
+            if not normalizer(claim_value) or not normalizer(document_value):
+                continue
+
+            if values_are_consistent(
+                claim_value,
+                document_value,
+                field_name,
+                normalizer,
+            ):
+                continue
+
+            add_contradiction(
+                investigation,
+                (
+                    f"{field_name} differs between the online claim "
+                    f"form and the {identifiers.document_type} "
+                    f"document: claim form='{claim_value}', "
+                    f"document='{document_value}'."
+                ),
+            )
+
+
+def apply_intoxication_check(
+    investigation: InvestigationResult,
+    extraction: ClaimExtraction,
+) -> None:
+    """A reported intoxicated driver makes the claim INVALID.
+
+    The policy excludes loss or damage while the driver is under the
+    influence of intoxicating liquor or drugs (Section I, 2.c). The
+    model alternated between CONCERN and INVALID for the same evidence,
+    so the outcome is fixed here.
+    """
+    if extraction.driver.intoxication_reported is not True:
+        return
+
+    condition = (
+        extraction.driver.condition_at_accident
+        or "intoxication reported in the claim documents"
+    )
+
+    exclusion_text = (
+        "The documents report that the driver was under the "
+        "influence at the time of the accident, which engages the "
+        "policy exclusion for intoxicating liquor or drugs."
+    )
+
+    accident_finding = next(
+        (
+            finding
+            for finding in investigation.findings
+            if finding.category == ACCIDENT_INFO
+        ),
+        None,
+    )
+
+    if accident_finding is None:
+        investigation.findings.append(
+            InvestigationFinding(
+                category=ACCIDENT_INFO,
+                status="INVALID",
+                finding=exclusion_text,
+                evidence=f"Driver condition: {condition}",
+            )
+        )
+    elif accident_finding.status != "INVALID":
+        accident_finding.status = "INVALID"
+        accident_finding.finding = (
+            f"{accident_finding.finding} {exclusion_text}"
+        )
+        accident_finding.evidence = (
+            f"{accident_finding.evidence} Driver condition: {condition}"
+        )
+
+    investigation.overall_status = "INVALID"
+
 
 def enforce_deterministic_status(
     investigation: InvestigationResult,
@@ -1277,6 +1397,48 @@ def enforce_deterministic_status(
 
         if investigation.overall_status == "VALID":
             investigation.overall_status = "CONCERN"
+
+    reconcile_overall_status(investigation)
+
+
+# Worst first. Missing evidence blocks a decision, so it outranks CONCERN.
+STATUS_SEVERITY = {
+    "VALID": 0,
+    "CONCERN": 1,
+    "INSUFFICIENT_EVIDENCE": 2,
+    "INVALID": 3,
+}
+
+
+def reconcile_overall_status(
+    investigation: InvestigationResult,
+) -> None:
+    """Keep overall_status consistent with the individual findings.
+
+    The reviewer rejects investigations whose overall status contradicts
+    their findings (e.g. INVALID overall with no INVALID finding).
+    """
+    if not investigation.findings:
+        return
+
+    worst = max(
+        (finding.status for finding in investigation.findings),
+        key=STATUS_SEVERITY.__getitem__,
+    )
+
+    if worst == "INVALID":
+        investigation.overall_status = "INVALID"
+
+    elif investigation.overall_status == "INVALID":
+        investigation.overall_status = (
+            "CONCERN" if worst == "VALID" else worst
+        )
+
+    elif (
+        STATUS_SEVERITY[worst]
+        > STATUS_SEVERITY[investigation.overall_status]
+    ):
+        investigation.overall_status = worst
 
 
 def record_usage(
@@ -1392,6 +1554,16 @@ def build_policy_search_queries(
         or "damage to the insured vehicle"
     ).strip()
 
+    # Exclusions often turn on the driver's state (alcohol, drugs), which
+    # the accident description alone may not mention.
+    exclusion_circumstances = circumstances
+
+    if extraction.driver.condition_at_accident:
+        exclusion_circumstances = (
+            f"{circumstances} Driver condition: "
+            f"{extraction.driver.condition_at_accident.strip()}"
+        )
+
     return [
         (
             "Section I Own Damage coverage: retrieve the operative wording "
@@ -1402,7 +1574,7 @@ def build_policy_search_queries(
         (
             "Section I Own Damage exclusions, general exceptions, and "
             "conditions: retrieve provisions that could affect a claim for "
-            f"this accident: {circumstances}. Include any reasonable-care "
+            f"this accident: {exclusion_circumstances}. Include any reasonable-care "
             "or claim-condition provisions that apply."
         ),
         (
@@ -1569,6 +1741,28 @@ the claimant, is the source for policy wording such as Section I
 coverage, exclusions, conditions, deductibles, and endorsements.
 If that wording cannot be retrieved, describe the missing policy
 wording precisely; do not call it missing policy-schedule details.
+
+Customer-specific amounts are NOT in the policy wording. The wording
+refers to them as "stated in the Schedule". Their values are in
+EXTRACTED DATA under policy: insured_declared_value,
+compulsory_deductible, voluntary_deductible, and add_on_covers.
+When those fields are present, state the applicable deductible and
+IDV in the Damage Information evidence, and do not list them as
+missing information. Only list a deductible or IDV as missing when
+the extracted policy field is null.
+
+If EXTRACTED DATA driver.intoxication_reported is true, or
+driver.condition_at_accident describes alcohol or drug influence,
+report it in Accident Information and check it against the
+exclusions in the policy evidence (for example loss or damage while
+the driver is under the influence of intoxicating liquor or drugs).
+Do not mark Accident Information or the overall result VALID in
+that case.
+
+EXTRACTED DATA document_identifiers lists the identifiers printed in
+each document. If one document shows a different policy number,
+registration number, or licence number from the claim form, report
+it as a contradiction.
 
 The previous Reviewer may have supplied investigation
 actions. Those actions are instructions for what to
@@ -1810,6 +2004,11 @@ def investigate_claim(
     apply_deterministic_consistency_checks(
         investigation,
         state,
+    )
+
+    apply_intoxication_check(
+        investigation,
+        state.extracted_data,
     )
 
     enforce_deterministic_status(

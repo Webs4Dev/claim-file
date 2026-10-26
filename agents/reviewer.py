@@ -249,6 +249,11 @@ This includes questions about:
 - claim conditions
 - other policy wording
 
+Deductible and IDV amounts are not policy wording. The wording
+says they are "stated in the Schedule", and their values come from
+the validated policy schedule. When the investigation states the
+deductible or IDV from the schedule, treat the amount as resolved.
+
 Do not request policy_document from the claimant merely to obtain
 policy wording.
 

@@ -14,15 +14,41 @@ embedding_client = chromadb.PersistentClient(
 )
 
 
-def get_collection(product: str):
+def get_collection_name(product: str) -> str:
     product = product.strip()
 
     if not product:
         raise ValueError("Product cannot be empty")
 
-    collection_name = f"policy_{product}"
+    return f"policy_{product}"
 
-    return embedding_client.get_or_create_collection(
+
+def get_collection(product: str):
+    # Read-only: a missing index must fail loudly, not return an empty
+    # collection that makes every claim look unsupported by the policy.
+    try:
+        return embedding_client.get_collection(
+            name=get_collection_name(product)
+        )
+    except Exception as exc:
+        raise ValueError(
+            f"No policy index found for product {product!r}. "
+            "Run: python -m scripts.build_index"
+        ) from exc
+
+
+def reset_collection(product: str):
+    """Delete and recreate the collection so rebuilds drop stale chunks."""
+    collection_name = get_collection_name(product)
+
+    try:
+        embedding_client.delete_collection(
+            name=collection_name
+        )
+    except Exception:
+        pass
+
+    return embedding_client.create_collection(
         name=collection_name
     )
 
@@ -76,8 +102,16 @@ def index_policy_chunks(
         for chunk in chunks
     ]
 
+    # Embed each chunk with its section so continuation chunks keep their
+    # context (e.g. "Section I" vs a TA add-on). The stored text is unchanged.
     embeddings = create_embeddings(
-        texts
+        [
+            f"{chunk.section}\n{chunk.text}"
+            if chunk.section
+            and not chunk.text.startswith(chunk.section)
+            else chunk.text
+            for chunk in chunks
+        ]
     )
 
     collection.upsert(

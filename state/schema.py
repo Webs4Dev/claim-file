@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -100,6 +100,14 @@ class ClaimForm(BaseModel):
 class PolicyDetails(BaseModel):
     policy_number: str | None = None
     insurance_period: str | None = None
+    # Customer-specific terms. Policy wording only says "as stated in the
+    # Schedule", so these must come from the policy schedule itself.
+    insured_declared_value: str | None = None
+    compulsory_deductible: str | None = None
+    voluntary_deductible: str | None = None
+    add_on_covers: list[str] = Field(
+        default_factory=list
+    )
 
 
 class VehicleDetails(BaseModel):
@@ -122,6 +130,12 @@ class DriverDetails(BaseModel):
     authorized_vehicle_types: list[str] = Field(
         default_factory=list
     )
+    # Driver condition as stated in the sources, e.g. a breath-analyser
+    # result. intoxication_reported is True only when a source says the
+    # driver was under the influence, False when a source says they were
+    # not, and None when no source mentions it.
+    condition_at_accident: str | None = None
+    intoxication_reported: bool | None = None
 
 
 class DamageDetails(BaseModel):
@@ -133,6 +147,19 @@ class PoliceDetails(BaseModel):
     fir_number: str | None = None
     fir_date: str | None = None
     police_station: str | None = None
+
+
+class DocumentIdentifiers(BaseModel):
+    """Identifiers exactly as printed in one supporting document.
+
+    The merged fields above hold one value each, so a conflict between
+    documents would otherwise disappear during extraction.
+    """
+
+    document_type: DocumentType
+    policy_number: str | None = None
+    vehicle_registration_number: str | None = None
+    driver_license_number: str | None = None
 
 
 class ClaimExtraction(BaseModel):
@@ -155,6 +182,9 @@ class ClaimExtraction(BaseModel):
         default_factory=PoliceDetails
     )
     third_party_involved: bool | None = None
+    document_identifiers: list[DocumentIdentifiers] = Field(
+        default_factory=list
+    )
 
 
 class ClaimDocument(BaseModel):
@@ -242,6 +272,7 @@ class HumanApproval(BaseModel):
 
 class ClaimState(BaseModel):
     claim_id: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     claim_form: ClaimForm = Field(
         default_factory=ClaimForm
     )
