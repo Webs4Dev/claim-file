@@ -29,18 +29,14 @@ const FILTERS = {
   closed: (c) => CLOSED_STATUSES.includes(c.status),
 };
 
-const SOURCE_NOTICE = {
-  demo: "The claims service is unavailable. These sample rows are not real claims.",
-  local: "The claims service is unavailable. Showing claims submitted from this browser only.",
-};
-
 const submittedAt = (c) => new Date(c.created_at || c.submitted_at || 0).getTime() || 0;
 
 export default function Dashboard({
   view,
+  user,
   claims,
   loading,
-  source,
+  error,
   onRefresh,
   onNewClaim,
   onOpenClaim,
@@ -66,29 +62,39 @@ export default function Dashboard({
 
   const countOf = (key) => claims.filter(FILTERS[key]).length;
   const isOverview = view === "dashboard";
+  const isReviewer = user.role === "reviewer";
 
   return (
     <>
       <section className="welcome-row">
         <div>
           <div className="eyebrow">
-            <span /> MOTOR INSURANCE &middot; {isOverview ? "CLAIMS OVERVIEW" : "MY CLAIMS"}
+            <span /> MOTOR INSURANCE &middot;{" "}
+            {isReviewer ? (isOverview ? "REVIEW QUEUE" : "ALL CLAIMS") : isOverview ? "CLAIMS OVERVIEW" : "MY CLAIMS"}
           </div>
-          {isOverview ? (
+          {isReviewer ? (
+            <h1>{isOverview ? "Review queue" : "All claims"}</h1>
+          ) : isOverview ? (
             <h1>
               Your claims, <em>all in one place.</em>
             </h1>
           ) : (
             <h1>My claims</h1>
           )}
-          <p>Follow your motor insurance claims from submission to decision.</p>
+          <p>
+            {isReviewer
+              ? "Every submitted claim, from automated assessment to your decision."
+              : "Follow your motor insurance claims from submission to decision."}
+          </p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={onNewClaim}>
-          <Plus size={17} /> Start a claim
-        </button>
+        {!isReviewer && (
+          <button type="button" className="btn btn-primary" onClick={onNewClaim}>
+            <Plus size={17} /> Start a claim
+          </button>
+        )}
       </section>
 
-      {SOURCE_NOTICE[source] && <Notice variant="demo">{SOURCE_NOTICE[source]}</Notice>}
+      {error && <Notice variant="error">{error}</Notice>}
 
       {isOverview && (
         <section className="metrics-grid">

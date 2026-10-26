@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { DOCUMENT_FIELDS, REQUIRED_DOCUMENTS, createClaim } from "../api";
 import DocumentUpload from "../components/DocumentUpload";
-import { rememberClaimId } from "../hooks/useClaims";
 
 const INITIAL_FORM = {
   policy_number: "",
@@ -156,7 +155,6 @@ export default function NewClaim({ onCreated, onCancel, onNotify }) {
       const data = await createClaim(form, files);
       const claimId = data?.claim_id || data?.claim?.claim_id;
       if (!claimId) throw new Error("The API response did not include a claim ID.");
-      rememberClaimId(claimId);
       onNotify("Claim submitted successfully.");
       onCreated(claimId);
     } catch (err) {

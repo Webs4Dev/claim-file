@@ -1,23 +1,46 @@
 import { useCallback, useState } from "react";
-import { X } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
 import Toast from "./components/Toast";
 import useApiHealth from "./hooks/useApiHealth";
+import useAuth from "./hooks/useAuth";
 import useClaims from "./hooks/useClaims";
 import useHashRoute from "./hooks/useHashRoute";
 import ClaimDetails from "./pages/ClaimDetails";
 import Dashboard from "./pages/Dashboard";
 import Help from "./pages/Help";
 import NewClaim from "./pages/NewClaim";
+import SignIn from "./pages/SignIn";
 
 export default function App() {
-  const { page, claimId, navigate } = useHashRoute();
+  const { user, login, createAccount, logout } = useAuth();
+
+  if (user === undefined) {
+    return (
+      <div className="loading-panel app-loading">
+        <RefreshCw className="spin" /> Loading ClaimFile...
+      </div>
+    );
+  }
+
+  if (!user) return <SignIn onSignIn={login} onRegister={createAccount} />;
+
+  // Keyed by user so nothing from a previous account survives a switch.
+  return <Portal key={user.user_id} user={user} onLogout={logout} />;
+}
+
+function Portal({ user, onLogout }) {
+  const { page: routedPage, claimId, navigate } = useHashRoute();
   const { healthy, recheck } = useApiHealth();
-  const { claims, loading, source, refresh } = useClaims();
+  const { claims, loading, error, refresh } = useClaims();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [toast, setToast] = useState("");
   const clearToast = useCallback(() => setToast(""), []);
+
+  const isReviewer = user.role === "reviewer";
+  // Reviewers assess claims; they do not submit them.
+  const page = isReviewer && routedPage === "new" ? "dashboard" : routedPage;
 
   const go = (target) => {
     setMobileOpen(false);
@@ -51,7 +74,7 @@ export default function App() {
         >
           <X size={18} />
         </button>
-        <Sidebar page={sidebarPage} onNavigate={go} />
+        <Sidebar page={sidebarPage} onNavigate={go} user={user} />
       </div>
 
       <main className="main-area">
@@ -59,14 +82,17 @@ export default function App() {
           onMenu={() => setMobileOpen((open) => !open)}
           healthy={healthy}
           onRecheck={recheck}
+          user={user}
+          onLogout={onLogout}
         />
         <div className="page-content">
           {(page === "dashboard" || page === "claims") && (
             <Dashboard
               view={page}
+              user={user}
               claims={claims}
               loading={loading}
-              source={source}
+              error={error}
               onRefresh={refreshAll}
               onNewClaim={() => go("new")}
               onOpenClaim={openClaim}
@@ -83,9 +109,10 @@ export default function App() {
             <ClaimDetails
               key={claimId}
               claimId={claimId}
-              demoClaim={claims.find((c) => c.claim_id === claimId)}
+              user={user}
               onBack={() => go("claims")}
               onNotify={setToast}
+              onChanged={() => refresh({ silent: true })}
             />
           )}
           {page === "help" && <Help />}
