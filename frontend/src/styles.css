@@ -381,6 +381,16 @@ button:disabled {
   font-size: 12.5px;
 }
 
+.btn-danger {
+  border-color: #efcaca;
+  color: var(--danger);
+  background: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #fdf3f3;
+}
+
 .back-link {
   display: inline-flex;
   align-items: center;
@@ -1372,6 +1382,20 @@ button:disabled {
 
 .claim-progress-panel {
   margin-top: 18px;
+}
+
+.decision-panel {
+  margin-bottom: 18px;
+  padding-bottom: 20px;
+  border-color: #cfe7e3;
+}
+
+.decision-panel .form-grid {
+  padding: 0 22px;
+}
+
+.decision-panel .form-actions {
+  margin: 20px 22px 0;
 }
 
 .status-explanation {

@@ -3,12 +3,20 @@ import {
   AlertCircle,
   ArrowLeft,
   CalendarDays,
+  CheckCircle2,
   FileText,
   RefreshCw,
   ShieldCheck,
   UploadCloud,
+  XCircle,
 } from "lucide-react";
-import { DOCUMENT_FIELDS, retryClaim, uploadAdditionalDocuments } from "../api";
+import {
+  DOCUMENT_FIELDS,
+  approveClaim,
+  rejectClaim,
+  retryClaim,
+  uploadAdditionalDocuments,
+} from "../api";
 import DocumentUpload from "../components/DocumentUpload";
 import Notice from "../components/Notice";
 import StatusBadge from "../components/StatusBadge";
@@ -62,6 +70,9 @@ export default function ClaimDetails({ claimId, demoClaim, onBack, onNotify }) {
   const [files, setFiles] = useState({});
   const [uploading, setUploading] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [reviewer, setReviewer] = useState("");
+  const [decisionNote, setDecisionNote] = useState("");
+  const [deciding, setDeciding] = useState("");
 
   const form = claimFormOf(claim);
   const docs = publicDocuments(claim);
@@ -138,6 +149,37 @@ export default function ClaimDetails({ claimId, demoClaim, onBack, onNotify }) {
     }
   }
 
+  async function handleDecision(action) {
+    const name = reviewer.trim();
+    const note = decisionNote.trim();
+    if (!name) {
+      setError("Enter the reviewer's name before recording a decision.");
+      return;
+    }
+    if (action === "reject" && !note) {
+      setError("Add a reason before rejecting the claim.");
+      return;
+    }
+    const prompt =
+      action === "approve"
+        ? "Approve this claim and mark it complete? This cannot be undone."
+        : "Reject this claim and close it? This cannot be undone.";
+    if (!window.confirm(prompt)) return;
+
+    setDeciding(action);
+    setError("");
+    try {
+      const send = action === "approve" ? approveClaim : rejectClaim;
+      await send(claimId, name, note);
+      await reload({ silent: true });
+      onNotify(action === "approve" ? "Claim approved and completed." : "Claim rejected and closed.");
+    } catch (err) {
+      setError(err.message || "Unable to record the decision.");
+    } finally {
+      setDeciding("");
+    }
+  }
+
   async function handleUpload(e) {
     e.preventDefault();
     setUploading(true);
@@ -197,6 +239,66 @@ export default function ClaimDetails({ claimId, demoClaim, onBack, onNotify }) {
             <UploadCloud size={15} /> Upload documents
           </button>
         </div>
+      )}
+
+      {claim.status === "human_approval" && (
+        <section className="panel decision-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Human review decision</h2>
+              <p>
+                Automated review recommends{" "}
+                <strong>{humanize(claim.review?.status) || "a decision"}</strong>. Approving
+                completes the claim; rejecting closes it.
+              </p>
+            </div>
+          </div>
+          <div className="form-grid">
+            <label className="form-field">
+              <span>
+                Reviewer name <b>*</b>
+              </span>
+              <input
+                name="decided_by"
+                value={reviewer}
+                onChange={(e) => setReviewer(e.target.value)}
+                maxLength={100}
+                placeholder="Who is making this decision"
+              />
+            </label>
+            <label className="form-field wide">
+              <span>Decision note (required to reject)</span>
+              <textarea
+                name="decision_reason"
+                value={decisionNote}
+                onChange={(e) => setDecisionNote(e.target.value)}
+                maxLength={2000}
+                rows="3"
+                placeholder="Reason for the decision"
+              />
+            </label>
+          </div>
+          <div className="form-actions">
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => handleDecision("reject")}
+              disabled={Boolean(deciding)}
+            >
+              <XCircle size={16} />
+              {deciding === "reject" ? "Rejecting..." : "Reject claim"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => handleDecision("approve")}
+              disabled={Boolean(deciding)}
+            >
+              <CheckCircle2 size={16} />
+              {deciding === "approve" ? "Approving..." : "Approve & complete"}
+            </button>
+          </div>
+        </section>
       )}
 
       <div className="details-grid">

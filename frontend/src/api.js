@@ -132,3 +132,17 @@ export async function uploadAdditionalDocuments(id, files) {
     body,
   });
 }
+
+function sendDecision(id, action, decidedBy, reason) {
+  return apiRequest(`/claims/${encodeURIComponent(id)}/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ decided_by: decidedBy, reason: reason || null }),
+  });
+}
+
+export const approveClaim = (id, decidedBy, reason) =>
+  sendDecision(id, "approve", decidedBy, reason);
+
+export const rejectClaim = (id, decidedBy, reason) =>
+  sendDecision(id, "reject", decidedBy, reason);
