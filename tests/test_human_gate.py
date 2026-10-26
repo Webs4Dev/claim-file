@@ -38,9 +38,6 @@ def test_decision_requires_reviewer_name(decide):
         decide(awaiting_claim(), "   ")
 
 
-def test_decision_request_limits_field_lengths():
+def test_decision_request_limits_reason_length():
     with pytest.raises(ValidationError):
-        HumanDecisionRequest(decided_by="", reason=None)
-
-    with pytest.raises(ValidationError):
-        HumanDecisionRequest(decided_by="Asha", reason="x" * 2001)
+        HumanDecisionRequest(reason="x" * 2001)
