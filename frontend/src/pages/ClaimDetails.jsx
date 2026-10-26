@@ -18,6 +18,7 @@ import {
   uploadAdditionalDocuments,
 } from "../api";
 import DocumentUpload from "../components/DocumentUpload";
+import ProcessingResults from "../components/ProcessingResults";
 import Notice from "../components/Notice";
 import StatusBadge from "../components/StatusBadge";
 import useClaim from "../hooks/useClaim";
@@ -29,22 +30,15 @@ import {
   publicDocuments,
 } from "../utils";
 
-function formatResultValue(value) {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (Array.isArray(value)) return value.map(formatResultValue).join(", ");
-  if (typeof value === "object") {
-    return Object.entries(value)
-      .filter(([, nested]) => nested !== null && nested !== undefined && nested !== "")
-      .map(([key, nested]) => `${humanize(key)}: ${formatResultValue(nested)}`)
-      .join(" · ");
-  }
-  return String(value);
-}
-
 function describeStatus(status) {
   if (status === "waiting_for_documents") {
     return ["Action required", "Please provide the requested documents so the claim can continue."];
+  }
+  if (status === "human_approval") {
+    return [
+      "Awaiting human review",
+      "Automated checks are complete. A reviewer will approve or reject this claim.",
+    ];
   }
   if (REVIEW_STATUSES.includes(status)) {
     return [
@@ -376,57 +370,7 @@ export default function ClaimDetails({ claimId, demoClaim, onBack, onNotify }) {
         </section>
       </div>
 
-      {(claim.extracted_data || claim.investigation || claim.review || claim.human_approval) && (
-        <section className="panel claim-progress-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Processing results</h2>
-              <p>Latest results for this claim</p>
-            </div>
-          </div>
-          {claim.extracted_data && (
-            <div className="description-block">
-              <span>Extracted information</span>
-              {Object.entries(claim.extracted_data).map(([group, values]) => (
-                <p key={group}>
-                  <strong>{humanize(group)}:</strong> {formatResultValue(values)}
-                </p>
-              ))}
-            </div>
-          )}
-          {claim.investigation && (
-            <div className="description-block">
-              <span>Investigation</span>
-              <p>Overall status: <strong>{humanize(claim.investigation.overall_status)}</strong></p>
-              {(claim.investigation.findings || []).map((finding, index) => (
-                <p key={`${finding.category}-${index}`}>
-                  <strong>{humanize(finding.category)} · {humanize(finding.status)}:</strong>{" "}
-                  {finding.finding}{finding.evidence ? ` Evidence: ${finding.evidence}` : ""}
-                </p>
-              ))}
-            </div>
-          )}
-          {claim.review && (
-            <div className="description-block">
-              <span>Review</span>
-              <p><strong>{humanize(claim.review.status)}</strong> — {claim.review.summary}</p>
-              {claim.review.concerns?.length > 0 && (
-                <p>Concerns: {claim.review.concerns.join("; ")}</p>
-              )}
-              {claim.review.required_actions?.length > 0 && (
-                <p>Required actions: {claim.review.required_actions.join("; ")}</p>
-              )}
-            </div>
-          )}
-          {claim.human_approval && (
-            <div className="description-block">
-              <span>Human decision</span>
-              <p><strong>{humanize(claim.human_approval.decision)}</strong> by {claim.human_approval.decided_by}</p>
-              {claim.human_approval.reason && <p>{claim.human_approval.reason}</p>}
-            </div>
-          )}
-        </section>
-      )}
+      <ProcessingResults claim={claim} />
 
       {showUpload && (
         <section className="panel additional-upload">
