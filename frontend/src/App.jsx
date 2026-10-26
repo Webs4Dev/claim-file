@@ -33,7 +33,7 @@ export default function App() {
 function Portal({ user, onLogout }) {
   const { page: routedPage, claimId, navigate } = useHashRoute();
   const { healthy, recheck } = useApiHealth();
-  const { claims, loading, error, refresh } = useClaims();
+  const { claims, loading, error, stale, updatedAt, changedIds, refresh } = useClaims();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [toast, setToast] = useState("");
   const clearToast = useCallback(() => setToast(""), []);
@@ -88,11 +88,15 @@ function Portal({ user, onLogout }) {
         <div className="page-content">
           {(page === "dashboard" || page === "claims") && (
             <Dashboard
+              key={page}
               view={page}
               user={user}
               claims={claims}
               loading={loading}
               error={error}
+              stale={stale}
+              updatedAt={updatedAt}
+              changedIds={changedIds}
               onRefresh={refreshAll}
               onNewClaim={() => go("new")}
               onOpenClaim={openClaim}

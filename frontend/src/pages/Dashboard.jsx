@@ -1,15 +1,19 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowUpRight,
   CarFront,
+  CheckCircle2,
   ClipboardList,
   Clock3,
   FileWarning,
+  Gavel,
   Plus,
   RefreshCw,
   Search,
   ShieldCheck,
 } from "lucide-react";
+import ClaimProgress from "../components/ClaimProgress";
 import Metric from "../components/Metric";
 import Notice from "../components/Notice";
 import StatusBadge from "../components/StatusBadge";
@@ -23,13 +27,76 @@ import {
 
 const FILTERS = {
   all: () => true,
+  decision: (c) => REVIEW_STATUSES.includes(c.status),
   documents: (c) => c.status === "waiting_for_documents",
-  review: (c) => REVIEW_STATUSES.includes(c.status),
   active: (c) => ACTIVE_STATUSES.includes(c.status),
   closed: (c) => CLOSED_STATUSES.includes(c.status),
 };
 
-const submittedAt = (c) => new Date(c.created_at || c.submitted_at || 0).getTime() || 0;
+const CLAIMANT_CHIPS = [
+  ["all", "All"],
+  ["active", "In progress"],
+  ["documents", "Action needed"],
+  ["decision", "Under review"],
+  ["closed", "Closed"],
+];
+
+const REVIEWER_CHIPS = [
+  ["decision", "Needs decision"],
+  ["active", "Processing"],
+  ["documents", "Awaiting claimant"],
+  ["closed", "Closed"],
+  ["all", "All"],
+];
+
+const submittedAt = (c) => new Date(c.created_at || 0).getTime() || 0;
+
+function timeAgo(timestamp, now) {
+  const seconds = Math.max(0, Math.round((now - timestamp) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+/** Re-renders on an interval so relative times stay current. */
+function useNow(intervalMs) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(timer);
+  }, [intervalMs]);
+  return now;
+}
+
+function LiveIndicator({ updatedAt, loading, stale }) {
+  const now = useNow(5000);
+  const since = updatedAt ? timeAgo(updatedAt, now) : null;
+  let text = since ? `Live · updated ${since}` : "Live";
+  if (loading) text = "Syncing...";
+  else if (stale) text = since ? `Offline · last updated ${since}` : "Offline";
+  // No aria-live: the relative time changes every few seconds.
+  return (
+    <span className={`live-indicator ${loading ? "syncing" : ""} ${stale ? "stale" : ""}`}>
+      <i aria-hidden="true" />
+      {text}
+    </span>
+  );
+}
+
+function SkeletonRows() {
+  return Array.from({ length: 4 }, (_, index) => (
+    <tr key={index} className="skeleton-row" aria-hidden="true">
+      {[150, 130, 170, 90, 110, 24].map((width, cell) => (
+        <td key={cell}>
+          <span className="skeleton" style={{ width }} />
+        </td>
+      ))}
+    </tr>
+  ));
+}
 
 export default function Dashboard({
   view,
@@ -37,15 +104,26 @@ export default function Dashboard({
   claims,
   loading,
   error,
+  stale,
+  updatedAt,
+  changedIds,
   onRefresh,
   onNewClaim,
   onOpenClaim,
 }) {
+  const isReviewer = user.role === "reviewer";
+  const isOverview = view === "dashboard";
+  const chips = isReviewer ? REVIEWER_CHIPS : CLAIMANT_CHIPS;
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState(isReviewer && isOverview ? "decision" : "all");
+  const now = useNow(60000);
+
+  const countOf = (key) => claims.filter(FILTERS[key]).length;
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
+    // The reviewer queue is worked oldest-first: longest waiting on top.
+    const oldestFirst = isReviewer && filter === "decision";
     return claims
       .filter((claim) => {
         const form = claimFormOf(claim);
@@ -57,33 +135,50 @@ export default function Dashboard({
         ].some((value) => String(value || "").toLowerCase().includes(query));
         return matches && FILTERS[filter](claim);
       })
-      .sort((a, b) => submittedAt(b) - submittedAt(a));
-  }, [claims, search, filter]);
+      .sort((a, b) =>
+        oldestFirst ? submittedAt(a) - submittedAt(b) : submittedAt(b) - submittedAt(a),
+      );
+  }, [claims, search, filter, isReviewer]);
 
-  const countOf = (key) => claims.filter(FILTERS[key]).length;
-  const isOverview = view === "dashboard";
-  const isReviewer = user.role === "reviewer";
+  const metrics = isReviewer
+    ? [
+        [Gavel, "Needs decision", countOf("decision"), "Waiting for a reviewer", "amber", "decision"],
+        [Clock3, "Processing", countOf("active"), "Automated checks running", "blue", "active"],
+        [FileWarning, "Awaiting claimant", countOf("documents"), "Documents requested", "violet", "documents"],
+        [CheckCircle2, "Closed", countOf("closed"), "Approved or rejected", "mint", "closed"],
+      ]
+    : [
+        [ClipboardList, "Total claims", claims.length, "Everything you've submitted", "mint", "all"],
+        [Clock3, "In progress", countOf("active"), "Being assessed now", "blue", "active"],
+        [FileWarning, "Action needed", countOf("documents"), "Documents requested", "amber", "documents"],
+        [ShieldCheck, "Under review", countOf("decision"), "With a reviewer", "violet", "decision"],
+      ];
+
+  const heading = isReviewer
+    ? isOverview
+      ? "Review queue"
+      : "All claims"
+    : isOverview
+      ? null
+      : "My claims";
 
   return (
     <>
       <section className="welcome-row">
         <div>
           <div className="eyebrow">
-            <span /> MOTOR INSURANCE &middot;{" "}
-            {isReviewer ? (isOverview ? "REVIEW QUEUE" : "ALL CLAIMS") : isOverview ? "CLAIMS OVERVIEW" : "MY CLAIMS"}
+            <span /> MOTOR INSURANCE &middot; {(heading || "Claims overview").toUpperCase()}
           </div>
-          {isReviewer ? (
-            <h1>{isOverview ? "Review queue" : "All claims"}</h1>
-          ) : isOverview ? (
+          {heading ? (
+            <h1>{heading}</h1>
+          ) : (
             <h1>
               Your claims, <em>all in one place.</em>
             </h1>
-          ) : (
-            <h1>My claims</h1>
           )}
           <p>
             {isReviewer
-              ? "Every submitted claim, from automated assessment to your decision."
+              ? "Claims the automated assessment has finished with, waiting for your decision."
               : "Follow your motor insurance claims from submission to decision."}
           </p>
         </div>
@@ -96,53 +191,59 @@ export default function Dashboard({
 
       {error && <Notice variant="error">{error}</Notice>}
 
+      {isReviewer && isOverview && countOf("decision") > 0 && (
+        <div className="queue-callout">
+          <AlertTriangle size={18} />
+          <span>
+            <strong>{countOf("decision")}</strong> claim{countOf("decision") === 1 ? "" : "s"}{" "}
+            waiting for a decision. The oldest is at the top.
+          </span>
+        </div>
+      )}
+
       {isOverview && (
         <section className="metrics-grid">
-          <Metric
-            Icon={ClipboardList}
-            title="Total claims"
-            value={claims.length}
-            note="Claims in this view"
-            tone="mint"
-          />
-          <Metric
-            Icon={Clock3}
-            title="In progress"
-            value={countOf("active")}
-            note="Currently being processed"
-            tone="blue"
-          />
-          <Metric
-            Icon={FileWarning}
-            title="Awaiting documents"
-            value={countOf("documents")}
-            note="Action may be needed"
-            tone="amber"
-          />
-          <Metric
-            Icon={ShieldCheck}
-            title="Under review"
-            value={countOf("review")}
-            note="Awaiting further assessment"
-            tone="violet"
-          />
+          {metrics.map(([Icon, title, value, note, tone, key]) => (
+            <button
+              type="button"
+              key={title}
+              className={`metric-button ${filter === key ? "selected" : ""}`}
+              onClick={() => setFilter(key)}
+              aria-pressed={filter === key}
+            >
+              <Metric
+                Icon={Icon}
+                title={title}
+                value={loading && !claims.length ? "–" : value}
+                note={note}
+                tone={tone}
+              />
+            </button>
+          ))}
         </section>
       )}
 
       <section className="panel claims-panel">
         <div className="panel-heading">
           <div>
-            <h2>Claims overview</h2>
-            <p>Search and review your submitted claims.</p>
+            <h2>{isReviewer ? "Claims" : "Your claims"}</h2>
+            <p>
+              {isReviewer
+                ? "Open a claim to review the evidence and decide."
+                : "Open a claim to see each step of its assessment."}
+            </p>
           </div>
-          <button
-            type="button"
-            className="btn btn-secondary btn-small"
-            onClick={onRefresh}
-            disabled={loading}
-          >
-            <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
-          </button>
+          <div className="panel-heading-actions">
+            <LiveIndicator updatedAt={updatedAt} loading={loading} stale={stale} />
+            <button
+              type="button"
+              className="btn btn-secondary btn-small"
+              onClick={onRefresh}
+              disabled={loading}
+            >
+              <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
+            </button>
+          </div>
         </div>
 
         <div className="table-toolbar">
@@ -152,50 +253,62 @@ export default function Dashboard({
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search claim, policyholder or vehicle"
+              placeholder="Search claim, policyholder, vehicle or policy"
               aria-label="Search claims"
             />
           </label>
-          <select
-            className="select-field"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            aria-label="Filter by status"
-          >
-            <option value="all">All statuses ({claims.length})</option>
-            <option value="active">In progress ({countOf("active")})</option>
-            <option value="documents">Awaiting documents ({countOf("documents")})</option>
-            <option value="review">Under review ({countOf("review")})</option>
-            <option value="closed">Closed claims ({countOf("closed")})</option>
-          </select>
+          <div className="filter-chips" role="group" aria-label="Filter by status">
+            {chips.map(([key, label]) => (
+              <button
+                type="button"
+                key={key}
+                className={`filter-chip ${filter === key ? "active" : ""}`}
+                onClick={() => setFilter(key)}
+                aria-pressed={filter === key}
+              >
+                {label}
+                <span>{key === "all" ? claims.length : countOf(key)}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="table-wrap">
           <table className="claims-table">
             <thead>
               <tr>
-                <th>CLAIM REFERENCE</th>
+                <th>CLAIM</th>
                 <th>VEHICLE</th>
+                <th>PROGRESS</th>
                 <th>SUBMITTED</th>
                 <th>STATUS</th>
-                <th />
+                <th>
+                  <span className="sr-only">Open</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((claim, index) => {
+              {loading && !claims.length && <SkeletonRows />}
+              {filtered.map((claim) => {
                 const form = claimFormOf(claim);
-                const vehicle = [form.vehicle_make, form.vehicle_model]
-                  .filter(Boolean)
-                  .join(" ");
+                const vehicle = [form.vehicle_make, form.vehicle_model].filter(Boolean).join(" ");
                 return (
-                  <tr key={claim.claim_id || index}>
+                  <tr
+                    key={claim.claim_id}
+                    className={`claim-row ${changedIds.has(claim.claim_id) ? "row-updated" : ""}`}
+                    onClick={() => onOpenClaim(claim.claim_id)}
+                  >
                     <td>
                       <button
                         type="button"
                         className="claim-reference"
-                        onClick={() => onOpenClaim(claim.claim_id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenClaim(claim.claim_id);
+                        }}
+                        title={claim.claim_id}
                       >
-                        {claim.claim_id || "—"} <ArrowUpRight size={13} />
+                        {claim.claim_id.slice(0, 8).toUpperCase()} <ArrowUpRight size={13} />
                       </button>
                       <div className="table-sub">{form.insured_name || "Policyholder"}</div>
                     </td>
@@ -210,33 +323,46 @@ export default function Dashboard({
                         </span>
                       </span>
                     </td>
-                    <td>{formatDate(claim.created_at || claim.submitted_at)}</td>
+                    <td>
+                      <ClaimProgress claim={claim} />
+                    </td>
+                    <td>
+                      {formatDate(claim.created_at)}
+                      <div className="table-sub">{timeAgo(submittedAt(claim), now)}</div>
+                    </td>
                     <td>
                       <StatusBadge status={claim.status} />
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="table-arrow"
-                        onClick={() => onOpenClaim(claim.claim_id)}
-                        aria-label={`Open claim ${claim.claim_id}`}
-                      >
+                      <span className="table-arrow" aria-hidden="true">
                         &rarr;
-                      </button>
+                      </span>
                     </td>
                   </tr>
                 );
               })}
-              {!filtered.length && (
+              {!loading && !filtered.length && (
                 <tr>
-                  <td colSpan="5">
+                  <td colSpan="6">
                     <div className="empty-state">
-                      <ClipboardList size={28} />
-                      <strong>{loading ? "Loading claims..." : "No claims found"}</strong>
+                      {isReviewer && filter === "decision" ? (
+                        <CheckCircle2 size={28} />
+                      ) : (
+                        <ClipboardList size={28} />
+                      )}
+                      <strong>
+                        {isReviewer && filter === "decision" && !search
+                          ? "Queue clear"
+                          : "No claims found"}
+                      </strong>
                       <p>
-                        {search || filter !== "all"
-                          ? "Try a different search or filter."
-                          : "Submit a claim to see it listed here."}
+                        {search
+                          ? "Try a different search."
+                          : isReviewer && filter === "decision"
+                            ? "Nothing is waiting for a decision right now."
+                            : filter !== "all"
+                              ? "No claims with this status."
+                              : "Submit a claim to see it listed here."}
                       </p>
                     </div>
                   </td>
@@ -251,19 +377,9 @@ export default function Dashboard({
             Showing <strong>{filtered.length}</strong> of {claims.length} claim
             {claims.length === 1 ? "" : "s"}
           </span>
-          <span>ClaimFile &middot; Motor claims</span>
+          <span>Updates automatically</span>
         </div>
       </section>
-
-      <div className="dashboard-bottom">
-        <div className="info-strip">
-          <ShieldCheck size={18} />
-          <span>
-            <strong>Your information matters.</strong> Claim decisions depend on the
-            evidence and policy terms.
-          </span>
-        </div>
-      </div>
     </>
   );
 }

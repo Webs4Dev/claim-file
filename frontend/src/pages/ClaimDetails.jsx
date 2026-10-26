@@ -17,6 +17,7 @@ import {
   retryClaim,
   uploadAdditionalDocuments,
 } from "../api";
+import ClaimProgress from "../components/ClaimProgress";
 import DocumentUpload from "../components/DocumentUpload";
 import ProcessingResults from "../components/ProcessingResults";
 import Notice from "../components/Notice";
@@ -407,8 +408,13 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify, onChange
             <p>Customer-visible status of this claim</p>
           </div>
         </div>
+        <ClaimProgress claim={claim} variant="full" />
         <div className="status-explanation">
-          <div className={`status-large-dot ${needsDocuments ? "warn" : ""}`} />
+          <div
+            className={`status-large-dot ${
+              needsDocuments || REVIEW_STATUSES.includes(claim.status) ? "warn" : ""
+            }`}
+          />
           <div>
             <strong>{statusTitle}</strong>
             <p>{statusText}</p>
