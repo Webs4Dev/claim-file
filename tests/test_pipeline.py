@@ -12,7 +12,7 @@ CLAIM_ID = "claim-test-001"
 
 
 CLAIM_FORM = ClaimForm(
-    policy_number="3510203118",
+    policy_number="TEST-POL-3510203118",
     insured_name="Suresh Kumar Pillai",
     vehicle_registration_number="TN 39 BZ 4521",
     vehicle_make="Maruti",
