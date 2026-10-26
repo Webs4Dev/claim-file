@@ -1,5 +1,5 @@
 from policy.bm25 import build_bm25_index
-from policy.index import index_policy_chunks
+from policy.index import index_policy_chunks, reset_collection
 from policy.ingestion import ingest_policy
 
 
@@ -19,6 +19,9 @@ POLICIES = [
 
 def build_index() -> None:
     all_chunks = []
+
+    for product in {policy["product"] for policy in POLICIES}:
+        reset_collection(product)
 
     for policy in POLICIES:
         chunks = ingest_policy(

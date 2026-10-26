@@ -10,7 +10,7 @@ def search_policy(
     results = retrieve_policy_chunks(
         query=query,
         product=product,
-        top_k=3,
+        top_k=5,
     )
 
     formatted_results = []

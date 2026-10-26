@@ -338,6 +338,12 @@ def detect_query_type(query: str) -> str:
         "making claim",
     }
 
+    if (
+        "deductible" in normalized
+        or "excess" in normalized
+    ):
+        return "deductible"
+
     if any(
         term in normalized
         for term in exclusion_terms
@@ -696,6 +702,14 @@ def calculate_query_type_score(
             "conditions during the contract",
         }
 
+    elif query_type == "deductible":
+        preferred_terms = {
+            "deductible",
+            "compulsory deductible",
+            "voluntary deductible",
+            "each and every claim",
+        }
+
     else:
         return 0.0
 
@@ -719,6 +733,14 @@ def calculate_base_section_bonus(
     section_normalized = normalize_text(
         section or ""
     )
+
+    # A deductible question asks for the deductible clause itself, even when
+    # it is phrased as a Section I question.
+    if (
+        query_type == "deductible"
+        and "deductible" in section_normalized
+    ):
+        return 1.0
 
     if intent == "idv":
         if "under motor policy" in section_normalized:
