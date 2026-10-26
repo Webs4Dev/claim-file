@@ -2,15 +2,24 @@ from datetime import datetime, timezone
 
 from state.schema import ClaimState, HumanApproval
 
+# A reviewer can settle any claim the automation handed to people: the
+# normal approval step, and claims it could not finish (internal review,
+# budget exceeded), which could otherwise only be rerun.
+DECIDABLE_STATUSES = {
+    "human_approval",
+    "needs_internal_review",
+    "budget_exceeded",
+}
+
 
 def approve_claim(
     state: ClaimState,
     decided_by: str,
     reason: str | None = None,
 ) -> ClaimState:
-    if state.status != "human_approval":
+    if state.status not in DECIDABLE_STATUSES:
         raise ValueError(
-            f"Claim is not awaiting human approval. "
+            f"Claim is not awaiting a human decision. "
             f"Current status: {state.status}"
         )
 
@@ -35,9 +44,9 @@ def reject_claim(
     decided_by: str,
     reason: str | None = None,
 ) -> ClaimState:
-    if state.status != "human_approval":
+    if state.status not in DECIDABLE_STATUSES:
         raise ValueError(
-            f"Claim is not awaiting human approval. "
+            f"Claim is not awaiting a human decision. "
             f"Current status: {state.status}"
         )
 

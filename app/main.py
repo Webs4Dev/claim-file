@@ -1,24 +1,32 @@
 import json
 import logging
+import shutil
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import (
     BackgroundTasks,
+    Depends,
     FastAPI,
     File,
     Form,
     HTTPException,
+    Request,
     UploadFile,
     Header,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from approval.human_gate import (
     approve_claim,
     reject_claim,
 )
+from auth.api import current_user, require_reviewer
+from auth.api import router as auth_router
+from auth.store import User
+from config import ALLOWED_ORIGINS
 from graph.workflow import app as workflow_app
 from state.schema import (
     ClaimDocument,
@@ -33,11 +41,16 @@ from state.store import (
     save_claim,
     save_submission_claim,
 )
+from tools.documents import SUPPORTED_DOCUMENT_EXTENSIONS
 
 
 logger = logging.getLogger(__name__)
 
 UPLOAD_DIRECTORY = Path("data/uploads")
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 UPLOAD_DIRECTORY.mkdir(
     parents=True,
     exist_ok=True,
@@ -53,18 +66,38 @@ api = FastAPI(
 
 api.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+api.include_router(auth_router)
+
+
+@api.middleware("http")
+async def reject_cross_site_writes(request: Request, call_next):
+    """CSRF guard. SameSite=Lax still sends the cookie from other ports on
+    the same host, so state-changing requests must come from an allowed
+    origin. Browsers always send Origin on cross-site POSTs; requests
+    without one (curl, scripts) cannot carry a victim's cookie."""
+    origin = request.headers.get("origin")
+
+    if (
+        request.method in UNSAFE_METHODS
+        and origin is not None
+        and origin not in ALLOWED_ORIGINS
+    ):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Cross-site request blocked."},
+        )
+
+    return await call_next(request)
+
 
 class HumanDecisionRequest(BaseModel):
-    decided_by: str = Field(min_length=1, max_length=100)
+    # The decider is the signed-in reviewer, never a client-supplied name.
     reason: str | None = Field(default=None, max_length=2000)
 
 
@@ -81,12 +114,35 @@ def save_uploaded_file(
 
     extension = Path(file.filename or "").suffix.lower()
 
+    if extension not in SUPPORTED_DOCUMENT_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{document_type}: only "
+                f"{', '.join(sorted(SUPPORTED_DOCUMENT_EXTENSIONS))} "
+                "files are accepted."
+            ),
+        )
+
     file_path = (
         claim_directory
         / f"{document_type}{extension}"
     )
 
-    file_path.write_bytes(file.file.read())
+    # Read in chunks so an oversized upload is refused without holding it
+    # in memory or filling the disk.
+    written = 0
+    with file_path.open("wb") as output:
+        while chunk := file.file.read(1024 * 1024):
+            written += len(chunk)
+            if written > MAX_UPLOAD_BYTES:
+                output.close()
+                file_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"{document_type}: files must be 10 MB or smaller.",
+                )
+            output.write(chunk)
 
     return str(file_path)
 
@@ -216,6 +272,7 @@ def clear_uploaded_document_requests(
 def build_public_response(state: ClaimState) -> dict:
     return {
         "claim_id": state.claim_id,
+        "owner_id": state.owner_id,
         "created_at": state.created_at.isoformat(),
         "claim_form": state.claim_form.model_dump(),
         "status": state.status,
@@ -254,6 +311,29 @@ def build_public_response(state: ClaimState) -> dict:
             else None
         ),
     }
+
+
+def load_accessible_claim(claim_id: str, user: User) -> ClaimState:
+    claim = load_claim(claim_id)
+
+    # 404 rather than 403, so claimants cannot probe which claim IDs exist.
+    if claim is None or (
+        user.role != "reviewer" and claim.owner_id != user.user_id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Claim not found.",
+        )
+
+    return claim
+
+
+def ensure_not_own_claim(claim: ClaimState, reviewer: User) -> None:
+    if claim.owner_id == reviewer.user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Reviewers cannot decide claims they submitted.",
+        )
 
 
 def validate_idempotency_key(key: str | None) -> str | None:
@@ -299,8 +379,15 @@ def health_check():
 
 
 @api.get("/claims")
-def get_claims():
+def get_claims(user: User = Depends(current_user)):
     claims = list_claims()
+
+    if user.role != "reviewer":
+        claims = [
+            claim
+            for claim in claims
+            if claim.owner_id == user.user_id
+        ]
 
     return [
         build_public_response(claim)
@@ -308,42 +395,10 @@ def get_claims():
     ]
 
 
-@api.post("/claims")
-def create_claim(
-    background_tasks: BackgroundTasks,
-    claim_form: str = Form(...),
-    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
-    policy_schedule: UploadFile | None = File(None),
-    vehicle_registration: UploadFile | None = File(None),
-    driving_license: UploadFile | None = File(None),
-    damage_survey_report: UploadFile | None = File(None),
-    repair_estimate: UploadFile | None = File(None),
-):
-    form = parse_claim_form(claim_form)
-    submission_key = validate_idempotency_key(idempotency_key)
-
-    if submission_key:
-        existing_id = load_submission_claim(submission_key)
-        if existing_id:
-            existing = load_claim(existing_id)
-            if existing is not None:
-                return build_public_response(existing)
-
-    uploaded_documents = collect_initial_documents(
-        policy_schedule,
-        vehicle_registration,
-        driving_license,
-        damage_survey_report,
-        repair_estimate,
-    )
-
-    if not uploaded_documents:
-        raise HTTPException(
-            status_code=400,
-            detail="At least one document must be uploaded.",
-        )
-
-    claim_id = str(uuid4())
+def save_initial_documents(
+    claim_id: str,
+    uploaded_documents: list[tuple[str, UploadFile]],
+) -> list[ClaimDocument]:
     documents = []
 
     for document_type, file in uploaded_documents:
@@ -371,6 +426,60 @@ def create_claim(
 
         documents.append(document)
 
+    return documents
+
+
+@api.post("/claims")
+def create_claim(
+    background_tasks: BackgroundTasks,
+    claim_form: str = Form(...),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    policy_schedule: UploadFile | None = File(None),
+    vehicle_registration: UploadFile | None = File(None),
+    driving_license: UploadFile | None = File(None),
+    damage_survey_report: UploadFile | None = File(None),
+    repair_estimate: UploadFile | None = File(None),
+    user: User = Depends(current_user),
+):
+    form = parse_claim_form(claim_form)
+    submission_key = validate_idempotency_key(idempotency_key)
+
+    # Scope keys per user so one account can never receive another
+    # account's claim by reusing an idempotency key.
+    if submission_key:
+        submission_key = f"{user.user_id}:{submission_key}"
+
+    if submission_key:
+        existing_id = load_submission_claim(submission_key)
+        if existing_id:
+            existing = load_claim(existing_id)
+            if existing is not None:
+                return build_public_response(existing)
+
+    uploaded_documents = collect_initial_documents(
+        policy_schedule,
+        vehicle_registration,
+        driving_license,
+        damage_survey_report,
+        repair_estimate,
+    )
+
+    if not uploaded_documents:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one document must be uploaded.",
+        )
+
+    claim_id = str(uuid4())
+
+    try:
+        documents = save_initial_documents(claim_id, uploaded_documents)
+    except HTTPException:
+        # Do not leave a half-written upload folder for a claim that was
+        # never created.
+        shutil.rmtree(UPLOAD_DIRECTORY / claim_id, ignore_errors=True)
+        raise
+
     document_paths = [
         document.file_path
         for document in documents
@@ -379,6 +488,7 @@ def create_claim(
 
     state = ClaimState(
         claim_id=claim_id,
+        owner_id=user.user_id,
         claim_form=form,
         documents=document_paths,
         claim_documents=documents,
@@ -405,7 +515,11 @@ def create_claim(
 
 
 @api.post("/claims/{claim_id}/retry")
-def retry_claim(claim_id: str, background_tasks: BackgroundTasks):
+def retry_claim(
+    claim_id: str,
+    background_tasks: BackgroundTasks,
+    reviewer: User = Depends(require_reviewer),
+):
     claim = load_claim(claim_id)
 
     if claim is None:
@@ -442,14 +556,8 @@ def retry_claim(claim_id: str, background_tasks: BackgroundTasks):
 
 
 @api.get("/claims/{claim_id}")
-def get_claim(claim_id: str):
-    claim = load_claim(claim_id)
-
-    if claim is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Claim not found.",
-        )
+def get_claim(claim_id: str, user: User = Depends(current_user)):
+    claim = load_accessible_claim(claim_id, user)
 
     return build_public_response(claim)
 
@@ -468,14 +576,9 @@ def upload_documents(
     police_report: UploadFile | None = File(None),
     fir_document: UploadFile | None = File(None),
     accident_report: UploadFile | None = File(None),
+    user: User = Depends(current_user),
 ):
-    claim = load_claim(claim_id)
-
-    if claim is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Claim not found.",
-        )
+    claim = load_accessible_claim(claim_id, user)
 
     if claim.status != "waiting_for_documents":
         raise HTTPException(
@@ -555,6 +658,7 @@ def upload_documents(
 def approve(
     claim_id: str,
     decision: HumanDecisionRequest,
+    reviewer: User = Depends(require_reviewer),
 ):
     claim = load_claim(claim_id)
 
@@ -564,10 +668,12 @@ def approve(
             detail="Claim not found.",
         )
 
+    ensure_not_own_claim(claim, reviewer)
+
     try:
         claim = approve_claim(
             claim,
-            decision.decided_by,
+            f"{reviewer.name} ({reviewer.email})",
             decision.reason,
         )
     except ValueError as error:
@@ -585,6 +691,7 @@ def approve(
 def reject(
     claim_id: str,
     decision: HumanDecisionRequest,
+    reviewer: User = Depends(require_reviewer),
 ):
     claim = load_claim(claim_id)
 
@@ -594,10 +701,12 @@ def reject(
             detail="Claim not found.",
         )
 
+    ensure_not_own_claim(claim, reviewer)
+
     try:
         claim = reject_claim(
             claim,
-            decision.decided_by,
+            f"{reviewer.name} ({reviewer.email})",
             decision.reason,
         )
     except ValueError as error:

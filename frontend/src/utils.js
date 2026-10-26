@@ -47,3 +47,11 @@ export function formatDate(value) {
 export const humanize = (text) => String(text || "").replaceAll("_", " ");
 export const claimFormOf = (claim) => claim?.claim_form || {};
 export const publicDocuments = (claim) => claim?.claim_documents || [];
+
+export const initialsOf = (name) =>
+  String(name || "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join("");

@@ -272,6 +272,9 @@ class HumanApproval(BaseModel):
 
 class ClaimState(BaseModel):
     claim_id: str
+    # user_id of the claimant who submitted it; None for claims created
+    # before accounts existed (visible to reviewers only).
+    owner_id: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     claim_form: ClaimForm = Field(
         default_factory=ClaimForm

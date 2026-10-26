@@ -26,6 +26,13 @@ def test_reject_moves_claim_to_terminated():
     assert claim.human_approval.decision == "REJECTED"
 
 
+@pytest.mark.parametrize("status", ["needs_internal_review", "budget_exceeded"])
+def test_stalled_claims_can_be_decided(status):
+    claim = reject_claim(awaiting_claim(status), "Asha Rao", "Cannot verify the loss.")
+
+    assert claim.status == "terminated"
+
+
 @pytest.mark.parametrize("decide", [approve_claim, reject_claim])
 def test_decision_requires_human_approval_status(decide):
     with pytest.raises(ValueError):
@@ -38,9 +45,6 @@ def test_decision_requires_reviewer_name(decide):
         decide(awaiting_claim(), "   ")
 
 
-def test_decision_request_limits_field_lengths():
+def test_decision_request_limits_reason_length():
     with pytest.raises(ValidationError):
-        HumanDecisionRequest(decided_by="", reason=None)
-
-    with pytest.raises(ValidationError):
-        HumanDecisionRequest(decided_by="Asha", reason="x" * 2001)
+        HumanDecisionRequest(reason="x" * 2001)

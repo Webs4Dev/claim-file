@@ -15,9 +15,11 @@ any claim ends outside its expected outcome.
 """
 
 import json
+import secrets
 import sys
 import time
 from pathlib import Path
+from uuid import uuid4
 
 import httpx
 
@@ -79,6 +81,19 @@ def load_claims(name_filter: str | None) -> list[tuple[str, dict]]:
         claims.append((directory.name, spec))
 
     return claims
+
+
+def sign_in_as_new_claimant(client: httpx.Client) -> None:
+    """Register a throwaway claimant; the session cookie stays on client."""
+    response = client.post(
+        "/auth/register",
+        json={
+            "email": f"scenario-runner-{uuid4().hex[:12]}@claimfile.test",
+            "name": "Scenario Runner",
+            "password": secrets.token_urlsafe(16),
+        },
+    )
+    response.raise_for_status()
 
 
 def submit_claim(client: httpx.Client, spec: dict) -> str:
@@ -197,6 +212,7 @@ def main() -> int:
 
     with httpx.Client(base_url=API_BASE, timeout=60) as client:
         client.get("/health").raise_for_status()
+        sign_in_as_new_claimant(client)
 
         submitted = [
             (name, spec, submit_claim(client, spec))

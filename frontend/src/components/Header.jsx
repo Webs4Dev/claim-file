@@ -1,4 +1,5 @@
-import { Menu, ShieldCheck } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
+import { initialsOf } from "../utils";
 
 const HEALTH_LABEL = {
   true: "API connected",
@@ -6,8 +7,9 @@ const HEALTH_LABEL = {
   null: "Checking API",
 };
 
-export default function Header({ onMenu, healthy, onRecheck }) {
+export default function Header({ onMenu, healthy, onRecheck, user, onLogout }) {
   const state = healthy === true ? "connected" : healthy === false ? "disconnected" : "";
+  const isReviewer = user.role === "reviewer";
   return (
     <header className="topbar">
       <button
@@ -21,7 +23,7 @@ export default function Header({ onMenu, healthy, onRecheck }) {
       <div className="breadcrumb">
         <span>ClaimFile</span>
         <span>/</span>
-        <strong>Motor claims portal</strong>
+        <strong>{isReviewer ? "Reviewer workspace" : "Motor claims portal"}</strong>
       </div>
       <div className="topbar-right">
         <button
@@ -33,9 +35,25 @@ export default function Header({ onMenu, healthy, onRecheck }) {
           <i aria-hidden="true" />
           {HEALTH_LABEL[String(healthy)]}
         </button>
-        <span className="topbar-avatar" aria-hidden="true">
-          <ShieldCheck size={17} />
-        </span>
+        <div className="topbar-user">
+          <span className={`topbar-avatar ${isReviewer ? "reviewer" : ""}`} aria-hidden="true">
+            {initialsOf(user.name)}
+          </span>
+          <span className="topbar-user-copy">
+            <strong>{user.name}</strong>
+            <small>{isReviewer ? "Reviewer" : "Claimant"}</small>
+          </span>
+        </div>
+        <button
+          type="button"
+          className="btn btn-secondary btn-small topbar-logout"
+          onClick={onLogout}
+          aria-label="Sign out"
+          title="Sign out"
+        >
+          <LogOut size={15} />
+          <span>Sign out</span>
+        </button>
       </div>
     </header>
   );

@@ -1,6 +1,6 @@
-const API_BASE = (
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
-).replace(/\/$/, "");
+// Same-origin by default (Vite proxies /api to the backend) so the
+// httpOnly session cookie is sent with every request.
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
 
 const REQUEST_TIMEOUT_MS = 20000;
 const SUBMISSION_KEY_STORAGE = "claimfile.pendingSubmissionKey";
@@ -29,6 +29,13 @@ export const REQUIRED_DOCUMENTS = [
   "damage_survey_report",
 ];
 
+let unauthorizedHandler = () => {};
+
+/** Called whenever the API answers 401, i.e. the session is missing or expired. */
+export function onUnauthorized(handler) {
+  unauthorizedHandler = handler;
+}
+
 export async function apiRequest(path, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -36,6 +43,7 @@ export async function apiRequest(path, options = {}) {
   let response;
   try {
     response = await fetch(`${API_BASE}${path}`, {
+      credentials: "include",
       ...options,
       signal: controller.signal,
     });
@@ -57,6 +65,8 @@ export async function apiRequest(path, options = {}) {
     data = text;
   }
 
+  if (response.status === 401 && !path.startsWith("/auth/")) unauthorizedHandler();
+
   if (!response.ok) {
     const detail =
       data?.detail || data?.message || `Request failed (${response.status})`;
@@ -66,6 +76,20 @@ export async function apiRequest(path, options = {}) {
 }
 
 export const checkHealth = () => apiRequest("/health");
+
+function postJson(path, body) {
+  return apiRequest(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export const getCurrentUser = () => apiRequest("/auth/me");
+export const signIn = (email, password) => postJson("/auth/login", { email, password });
+export const register = (name, email, password) =>
+  postJson("/auth/register", { name, email, password });
+export const signOut = () => postJson("/auth/logout", {});
 
 export async function listClaims() {
   const data = await apiRequest("/claims");
@@ -133,16 +157,9 @@ export async function uploadAdditionalDocuments(id, files) {
   });
 }
 
-function sendDecision(id, action, decidedBy, reason) {
-  return apiRequest(`/claims/${encodeURIComponent(id)}/${action}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ decided_by: decidedBy, reason: reason || null }),
-  });
-}
+// The backend records the signed-in reviewer as the decider.
+export const approveClaim = (id, reason) =>
+  postJson(`/claims/${encodeURIComponent(id)}/approve`, { reason: reason || null });
 
-export const approveClaim = (id, decidedBy, reason) =>
-  sendDecision(id, "approve", decidedBy, reason);
-
-export const rejectClaim = (id, decidedBy, reason) =>
-  sendDecision(id, "reject", decidedBy, reason);
+export const rejectClaim = (id, reason) =>
+  postJson(`/claims/${encodeURIComponent(id)}/reject`, { reason: reason || null });

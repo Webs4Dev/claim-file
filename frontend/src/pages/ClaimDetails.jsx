@@ -17,6 +17,7 @@ import {
   retryClaim,
   uploadAdditionalDocuments,
 } from "../api";
+import ClaimProgress from "../components/ClaimProgress";
 import DocumentUpload from "../components/DocumentUpload";
 import ProcessingResults from "../components/ProcessingResults";
 import Notice from "../components/Notice";
@@ -58,13 +59,13 @@ function describeStatus(status) {
   return ["Claim received", "Your claim has been received and is being processed."];
 }
 
-export default function ClaimDetails({ claimId, demoClaim, onBack, onNotify }) {
-  const { claim, loading, error, setError, reload } = useClaim(claimId, demoClaim);
+export default function ClaimDetails({ claimId, user, onBack, onNotify, onChanged }) {
+  const { claim, loading, error, setError, reload } = useClaim(claimId);
+  const isReviewer = user.role === "reviewer";
   const [showUpload, setShowUpload] = useState(false);
   const [files, setFiles] = useState({});
   const [uploading, setUploading] = useState(false);
   const [retrying, setRetrying] = useState(false);
-  const [reviewer, setReviewer] = useState("");
   const [decisionNote, setDecisionNote] = useState("");
   const [deciding, setDeciding] = useState("");
 
@@ -135,6 +136,7 @@ export default function ClaimDetails({ claimId, demoClaim, onBack, onNotify }) {
     try {
       await retryClaim(claimId);
       await reload({ silent: true });
+      onChanged();
       onNotify("Claim processing restarted.");
     } catch (err) {
       setError(err.message || "Unable to restart claim processing.");
@@ -144,12 +146,7 @@ export default function ClaimDetails({ claimId, demoClaim, onBack, onNotify }) {
   }
 
   async function handleDecision(action) {
-    const name = reviewer.trim();
     const note = decisionNote.trim();
-    if (!name) {
-      setError("Enter the reviewer's name before recording a decision.");
-      return;
-    }
     if (action === "reject" && !note) {
       setError("Add a reason before rejecting the claim.");
       return;
@@ -164,8 +161,9 @@ export default function ClaimDetails({ claimId, demoClaim, onBack, onNotify }) {
     setError("");
     try {
       const send = action === "approve" ? approveClaim : rejectClaim;
-      await send(claimId, name, note);
+      await send(claimId, note);
       await reload({ silent: true });
+      onChanged();
       onNotify(action === "approve" ? "Claim approved and completed." : "Claim rejected and closed.");
     } catch (err) {
       setError(err.message || "Unable to record the decision.");
@@ -182,6 +180,7 @@ export default function ClaimDetails({ claimId, demoClaim, onBack, onNotify }) {
       setFiles({});
       setShowUpload(false);
       await reload({ silent: true });
+      onChanged();
       onNotify("Documents submitted successfully.");
     } catch (err) {
       setError(err.message || "Unable to upload additional documents.");
@@ -235,31 +234,25 @@ export default function ClaimDetails({ claimId, demoClaim, onBack, onNotify }) {
         </div>
       )}
 
-      {claim.status === "human_approval" && (
+      {isReviewer && REVIEW_STATUSES.includes(claim.status) && (
         <section className="panel decision-panel">
           <div className="panel-heading">
             <div>
               <h2>Human review decision</h2>
               <p>
-                Automated review recommends{" "}
-                <strong>{humanize(claim.review?.status) || "a decision"}</strong>. Approving
-                completes the claim; rejecting closes it.
+                {claim.status === "human_approval" ? (
+                  <>
+                    Automated review recommends{" "}
+                    <strong>{humanize(claim.review?.status) || "a decision"}</strong>.
+                  </>
+                ) : (
+                  "Automated assessment could not finish this claim. Decide it yourself, or rerun processing below."
+                )}{" "}
+                Approving completes the claim; rejecting closes it. Recorded as {user.name}.
               </p>
             </div>
           </div>
           <div className="form-grid">
-            <label className="form-field">
-              <span>
-                Reviewer name <b>*</b>
-              </span>
-              <input
-                name="decided_by"
-                value={reviewer}
-                onChange={(e) => setReviewer(e.target.value)}
-                maxLength={100}
-                placeholder="Who is making this decision"
-              />
-            </label>
             <label className="form-field wide">
               <span>Decision note (required to reject)</span>
               <textarea
@@ -415,14 +408,19 @@ export default function ClaimDetails({ claimId, demoClaim, onBack, onNotify }) {
             <p>Customer-visible status of this claim</p>
           </div>
         </div>
+        <ClaimProgress claim={claim} variant="full" />
         <div className="status-explanation">
-          <div className={`status-large-dot ${needsDocuments ? "warn" : ""}`} />
+          <div
+            className={`status-large-dot ${
+              needsDocuments || REVIEW_STATUSES.includes(claim.status) ? "warn" : ""
+            }`}
+          />
           <div>
             <strong>{statusTitle}</strong>
             <p>{statusText}</p>
           </div>
         </div>
-        {["needs_internal_review", "budget_exceeded"].includes(claim.status) && (
+        {isReviewer && ["needs_internal_review", "budget_exceeded"].includes(claim.status) && (
           <div className="request-banner">
             <div>
               <strong>Run processing again</strong>
