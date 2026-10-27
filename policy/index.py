@@ -37,19 +37,43 @@ def get_collection(product: str):
         ) from exc
 
 
-def reset_collection(product: str):
-    """Delete and recreate the collection so rebuilds drop stale chunks."""
-    collection_name = get_collection_name(product)
+def get_staging_collection_name(product: str) -> str:
+    return f"{get_collection_name(product)}_staging"
 
+
+def create_staging_collection(product: str):
+    """Fresh collection for a rebuild. The live index keeps serving claims
+    until promote_staging_collection swaps this one in."""
+    staging_name = get_staging_collection_name(product)
+
+    # Left over from an earlier rebuild that failed part-way.
     try:
         embedding_client.delete_collection(
-            name=collection_name
+            name=staging_name
         )
     except Exception:
         pass
 
     return embedding_client.create_collection(
-        name=collection_name
+        name=staging_name
+    )
+
+
+def promote_staging_collection(product: str) -> None:
+    """Replace the live collection with the finished staging one."""
+    live_name = get_collection_name(product)
+
+    try:
+        embedding_client.delete_collection(
+            name=live_name
+        )
+    except Exception:
+        pass
+
+    embedding_client.get_collection(
+        name=get_staging_collection_name(product)
+    ).modify(
+        name=live_name
     )
 
 
@@ -74,6 +98,7 @@ def create_embeddings(
 
 def index_policy_chunks(
     chunks: list[PolicyChunk],
+    collection,
 ) -> None:
     if not chunks:
         raise ValueError(
@@ -94,8 +119,6 @@ def index_policy_chunks(
         raise ValueError(
             "All chunks must belong to the same product"
         )
-
-    collection = get_collection(product)
 
     texts = [
         chunk.text

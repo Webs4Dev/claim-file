@@ -15,11 +15,13 @@ import app.main as main
 from auth.api import SESSION_COOKIE
 from auth.store import (
     LOGIN_ATTEMPT_LIMIT,
+    REGISTER_IP_LIMIT,
     create_user,
     delete_session,
+    find_user_by_email,
     normalize_email,
 )
-from state.store import load_claim, redis_client, save_claim
+from state.store import delete_claim, load_claim, redis_client, save_claim
 
 PASSWORD = "correct horse battery"
 
@@ -42,7 +44,7 @@ def created():
     for client in record["clients"]:
         delete_session(client.cookies.get(SESSION_COOKIE))
     for ip in record["ips"]:
-        redis_client.delete(f"login_fail_ip:{ip}")
+        redis_client.delete(f"login_fail_ip:{ip}", f"register_ip:{ip}")
     for email in record["emails"]:
         email = normalize_email(email)
         redis_client.delete(f"user_email:{email}")
@@ -53,7 +55,7 @@ def created():
         for key in redis_client.scan_iter(match=f"claim_submission:{user_id}:*"):
             redis_client.delete(key)
     for claim_id in record["claims"]:
-        redis_client.delete(f"claim:{claim_id}")
+        delete_claim(claim_id)
         shutil.rmtree(main.UPLOAD_DIRECTORY / claim_id, ignore_errors=True)
 
 
@@ -65,7 +67,13 @@ def no_processing(monkeypatch):
 def new_client(created, ip=None) -> TestClient:
     if ip:
         created["ips"].add(ip)
-    client = TestClient(main.app, client=(ip, 50000)) if ip else TestClient(main.app)
+    # https so the session cookie is sent back even when COOKIE_SECURE is on.
+    base_url = "https://testserver"
+    client = (
+        TestClient(main.app, base_url=base_url, client=(ip, 50000))
+        if ip
+        else TestClient(main.app, base_url=base_url)
+    )
     created["clients"].append(client)
     return client
 
@@ -78,6 +86,8 @@ def claimant(created, name="Test Claimant") -> TestClient:
         "/auth/register",
         json={"email": email, "name": name, "password": PASSWORD},
     )
+    assert response.status_code == 200, response.text
+    response = client.post("/auth/login", json={"email": email, "password": PASSWORD})
     assert response.status_code == 200, response.text
     created["users"].append(response.json()["user_id"])
     return client
@@ -94,21 +104,23 @@ def reviewer(created) -> TestClient:
     return client
 
 
-def post_claim(client, files, key=None):
+def post_claim(client, files, key=None, form=None):
     headers = {"Idempotency-Key": key} if key else {}
     return client.post(
         "/claims",
-        data={"claim_form": json.dumps(CLAIM_FORM)},
+        data={"claim_form": json.dumps(form or CLAIM_FORM)},
         files=files,
         headers=headers,
     )
 
 
-def submit_claim(client, created, key=None) -> str:
+def submit_claim(client, created, key=None, insured_name=None) -> str:
+    form = {**CLAIM_FORM, "insured_name": insured_name} if insured_name else None
     response = post_claim(
         client,
         {"policy_schedule": ("policy.pdf", b"%PDF-1.4 test", "application/pdf")},
         key,
+        form,
     )
     assert response.status_code == 200, response.text
     claim_id = response.json()["claim_id"]
@@ -119,46 +131,77 @@ def submit_claim(client, created, key=None) -> str:
 # ---------- accounts and sessions ----------
 
 
-def test_register_signs_in_as_claimant(created):
-    client = claimant(created, name="Asha Rao")
-
-    me = client.get("/auth/me")
-
-    assert me.status_code == 200
-    assert me.json()["role"] == "claimant"
-    assert me.json()["name"] == "Asha Rao"
-
-
-def test_session_cookie_is_http_only(created):
+def test_register_creates_claimant_without_signing_in(created):
     email = f"test-{uuid4().hex[:10]}@claimfile.test"
     created["emails"].append(email)
     client = new_client(created)
 
     response = client.post(
         "/auth/register",
-        json={"email": email, "name": "A", "password": PASSWORD},
+        json={"email": email, "name": "Asha Rao", "password": PASSWORD},
     )
-    created["users"].append(response.json()["user_id"])
+
+    assert response.status_code == 200
+    assert "set-cookie" not in response.headers
+    assert client.get("/auth/me").status_code == 401
+
+    me = client.post("/auth/login", json={"email": email, "password": PASSWORD})
+    created["users"].append(me.json()["user_id"])
+    assert me.json()["role"] == "claimant"
+    assert me.json()["name"] == "Asha Rao"
+
+
+def test_session_cookie_is_http_only(created):
+    client = claimant(created)
+    email = client.get("/auth/me").json()["email"]
+
+    response = client.post("/auth/login", json={"email": email, "password": PASSWORD})
 
     cookie = response.headers["set-cookie"].lower()
     assert "httponly" in cookie
     assert "samesite=lax" in cookie
 
 
-def test_register_rejects_duplicate_email_case_insensitively(created):
+def test_register_does_not_reveal_existing_emails(created):
     email = f"Test-{uuid4().hex[:10]}@ClaimFile.test"
-    created["emails"].append(email)
+    new_email = f"test-{uuid4().hex[:10]}@claimfile.test"
+    created["emails"] += [email, new_email]
     first = new_client(created).post(
         "/auth/register", json={"email": email, "name": "A", "password": PASSWORD}
     )
-    created["users"].append(first.json()["user_id"])
+    original = find_user_by_email(email)
+    created["users"].append(original.user_id)
 
-    second = new_client(created).post(
+    taken = new_client(created).post(
         "/auth/register",
-        json={"email": email.upper(), "name": "B", "password": PASSWORD},
+        json={"email": email.upper(), "name": "B", "password": "a different password"},
     )
+    fresh = new_client(created).post(
+        "/auth/register",
+        json={"email": new_email, "name": "C", "password": PASSWORD},
+    )
+    created["users"].append(find_user_by_email(new_email).user_id)
 
-    assert second.status_code == 409
+    assert first.status_code == taken.status_code == fresh.status_code == 200
+    assert taken.json() == fresh.json()
+    assert "set-cookie" not in taken.headers
+    # The existing account is untouched.
+    assert find_user_by_email(email).model_dump() == original.model_dump()
+
+
+def test_register_is_rate_limited_per_ip(created):
+    client = new_client(created, ip="203.0.113.50")
+
+    def register():
+        return client.post(
+            "/auth/register",
+            json={"email": "not-an-email", "name": "A", "password": PASSWORD},
+        )
+
+    for _ in range(REGISTER_IP_LIMIT):
+        assert register().status_code == 400
+
+    assert register().status_code == 429
 
 
 @pytest.mark.parametrize("password", ["short", "x" * 73])
@@ -250,6 +293,11 @@ def test_claims_require_sign_in(created):
 # ---------- claim access ----------
 
 
+def claim_ids(response) -> list[str]:
+    assert response.status_code == 200, response.text
+    return [c["claim_id"] for c in response.json()["claims"]]
+
+
 def test_claimants_only_see_their_own_claims(created):
     owner = claimant(created)
     other = claimant(created)
@@ -257,16 +305,98 @@ def test_claimants_only_see_their_own_claims(created):
 
     assert owner.get(f"/claims/{claim_id}").status_code == 200
     assert other.get(f"/claims/{claim_id}").status_code == 404
-    assert claim_id not in [c["claim_id"] for c in other.get("/claims").json()]
-    assert claim_id in [c["claim_id"] for c in owner.get("/claims").json()]
+    assert claim_id not in claim_ids(other.get("/claims"))
+    assert claim_id in claim_ids(owner.get("/claims"))
+    # Filters and search cannot reach another owner's claims either.
+    assert claim_id not in claim_ids(other.get("/claims", params={"q": claim_id}))
+    assert other.get("/claims").json()["status_counts"] == {}
 
 
 def test_reviewer_sees_every_claim(created):
     claim_id = submit_claim(claimant(created), created)
 
-    response = reviewer(created).get("/claims")
+    response = reviewer(created).get("/claims", params={"q": claim_id})
 
-    assert claim_id in [c["claim_id"] for c in response.json()]
+    assert claim_ids(response) == [claim_id]
+
+
+def test_claims_list_is_paginated(created):
+    owner = claimant(created)
+    first, second, third = (submit_claim(owner, created) for _ in range(3))
+
+    page = owner.get("/claims", params={"limit": 2}).json()
+    rest = owner.get("/claims", params={"limit": 2, "offset": 2}).json()
+
+    assert page["total"] == rest["total"] == 3
+    assert [c["claim_id"] for c in page["claims"]] == [third, second]
+    assert [c["claim_id"] for c in rest["claims"]] == [first]
+
+
+def test_claims_list_filters_and_counts_by_status(created):
+    owner = claimant(created)
+    waiting, older_waiting = submit_claim(owner, created), submit_claim(owner, created)
+    pending = submit_claim(owner, created)
+    for claim_id in (waiting, older_waiting):
+        claim = load_claim(claim_id)
+        claim.status = "human_approval"
+        save_claim(claim)
+
+    response = owner.get(
+        "/claims", params={"status": "human_approval,needs_internal_review", "order": "oldest"}
+    ).json()
+
+    assert [c["claim_id"] for c in response["claims"]] == [waiting, older_waiting]
+    assert response["status_counts"] == {"human_approval": 2, "pending": 1}
+    assert pending not in [c["claim_id"] for c in response["claims"]]
+
+
+def test_claims_list_searches_policyholder_names(created):
+    owner = claimant(created)
+    marker = uuid4().hex[:8]
+    match = submit_claim(owner, created, insured_name=f"Meera {marker}")
+    submit_claim(owner, created)
+
+    assert claim_ids(owner.get("/claims", params={"q": marker.upper()})) == [match]
+
+
+def test_claims_deleted_behind_the_index_drop_out_of_the_list(created):
+    owner = claimant(created)
+    kept = submit_claim(owner, created)
+    gone = submit_claim(owner, created)
+    redis_client.delete(f"claim:{gone}")
+
+    first = owner.get("/claims").json()
+    second = owner.get("/claims").json()
+
+    assert [c["claim_id"] for c in first["claims"]] == [kept]
+    assert first["total"] == second["total"] == 1
+    assert redis_client.hget("claims:status", gone) is None
+
+
+def test_claims_list_rejects_oversized_pages(created):
+    assert claimant(created).get("/claims", params={"limit": 1000}).status_code == 422
+
+
+def test_claim_responses_hide_server_file_paths(created):
+    owner = claimant(created)
+    claim_id = submit_claim(owner, created)
+
+    body = owner.get(f"/claims/{claim_id}").text
+
+    assert "data/uploads" not in body
+    assert "file_path" not in body
+
+
+def test_invalid_claim_form_names_fields_without_echoing_input(created):
+    response = post_claim(
+        claimant(created),
+        {"policy_schedule": ("policy.pdf", b"%PDF-1.4 test", "application/pdf")},
+        form={**CLAIM_FORM, "accident_date": ["<secret-marker>"]},
+    )
+
+    assert response.status_code == 400
+    assert "accident_date" in response.json()["detail"]
+    assert "secret-marker" not in response.text
 
 
 def test_upload_rejects_unsupported_file_types(created):

@@ -21,7 +21,7 @@ python -m venv venv
 venv/bin/pip install -r requirements.txt
 cp .env.example .env                    # then fill in OPENAI_API_KEY
 venv/bin/python -m scripts.build_index  # once: index the policy PDFs
-venv/bin/uvicorn app.main:app --port 8000
+venv/bin/uvicorn app.main:app --port 8000 --env-file .env
 
 # 3. Frontend (separate terminal)
 cd frontend
@@ -32,9 +32,21 @@ npm run dev                             # http://localhost:5173
 The frontend calls the API through Vite's `/api` proxy, so the session cookie
 is same-origin. Open the app on `http://localhost:5173`.
 
+`--env-file .env` lets uvicorn read `FORWARDED_ALLOW_IPS` (below); the API
+logs a warning at startup when it is missing. Behind a reverse proxy, set it to
+the proxy's address as uvicorn sees it (e.g. the Docker gateway), and make the
+proxy set or append `X-Forwarded-For` (nginx: `$proxy_add_x_forwarded_for`).
+
+Rebuilding the policy index never leaves a half-built index: it builds a
+staging copy and only swaps it in once the whole build has succeeded. Claims
+processed during the brief swap itself may miss policy evidence, so rebuild
+when no claims are processing.
+
 ## Accounts
 
-- **Claimants** create their own account on the sign-in page. They see only
+- **Claimants** create their own account on the sign-in page, then sign in.
+  Sign-up gives the same answer whether or not the email already has an
+  account, so it cannot be used to check who is registered. They see only
   their own claims.
 - **Reviewers** see every claim and approve or reject the ones awaiting human
   review. They cannot sign up through the app; create one with:
@@ -52,8 +64,9 @@ Backend (`.env`, see `.env.example`):
 | `OPENAI_API_KEY` | OpenAI key used by all agents (required) |
 | `OPENAI_MODEL` | Model name |
 | `MAX_STEPS`, `MAX_TOKENS`, `MAX_COST` | Per-claim processing budget |
-| `COOKIE_SECURE` | `true` when served over HTTPS |
+| `COOKIE_SECURE` | HTTPS-only session cookie. Defaults to `true`; set `false` only if your local browser drops it over http (Safari) |
 | `ALLOWED_ORIGINS` | Comma-separated browser origins allowed to call the API |
+| `FORWARDED_ALLOW_IPS` | Reverse-proxy IPs whose `X-Forwarded-For` uvicorn trusts for the client IP (login rate limits). Empty = none. Set it to your proxy's IP in deployment |
 
 Frontend (`frontend/.env`, see `frontend/.env.example`):
 
@@ -65,7 +78,7 @@ Frontend (`frontend/.env`, see `frontend/.env.example`):
 
 ```bash
 # Fast, no LLM calls (needs Redis)
-venv/bin/python -m pytest tests/test_auth_api.py tests/test_human_gate.py tests/test_investigator_status.py -q
+venv/bin/python -m pytest tests/test_auth_api.py tests/test_human_gate.py tests/test_investigator_status.py tests/test_build_index.py -q
 
 # Policy retrieval checks
 venv/bin/python -m tests.eval_policy_retrieval

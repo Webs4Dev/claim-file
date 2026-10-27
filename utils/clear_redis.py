@@ -1,9 +1,15 @@
 from state.store import redis_client
 
-# Snapshots and idempotency keys point at claims, so they must be cleared
-# with them. A leftover claim_submission key would make that client's
-# next submission fail with 409 forever.
-PATTERNS = ["claim:*", "snapshot:*", "snapshots:*", "claim_submission:*"]
+# Snapshots, idempotency keys and the list indexes (claims:*) point at
+# claims, so they must be cleared with them. A leftover claim_submission
+# key would make that client's next submission fail with 409 forever.
+PATTERNS = [
+    "claim:*",
+    "claims:*",
+    "snapshot:*",
+    "snapshots:*",
+    "claim_submission:*",
+]
 
 keys = [
     key

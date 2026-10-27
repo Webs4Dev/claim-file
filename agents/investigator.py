@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from datetime import datetime
 
@@ -27,6 +28,9 @@ from state.schema import (
 )
 
 from tools.policy import search_policy
+
+
+logger = logging.getLogger(__name__)
 
 
 client = OpenAI(
@@ -1608,10 +1612,12 @@ def collect_policy_searches(
 
         try:
             result = search_policy(**arguments)
-        except Exception as exc:
+        except Exception:
+            # The model may repeat this text in findings users can see, so
+            # keep internal error details in the log only.
+            logger.exception("Policy search failed for %r", query)
             result = (
-                "Policy search was unavailable for this question: "
-                f"{exc}"
+                "Policy search was unavailable for this question."
             )
 
         policy_evidence.append(

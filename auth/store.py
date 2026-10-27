@@ -21,8 +21,17 @@ LOGIN_ATTEMPT_LIMIT = 5
 LOGIN_IP_FAILURE_LIMIT = 30
 LOGIN_WINDOW_SECONDS = 15 * 60
 
+# Sign-ups per IP per hour. Each one runs bcrypt, so unlimited sign-ups
+# could tie up the server and fill Redis with accounts.
+REGISTER_IP_LIMIT = 10
+REGISTER_WINDOW_SECONDS = 60 * 60
+
 # Deliberately loose: real validation would be a confirmation email.
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class EmailTakenError(ValueError):
+    """The email already belongs to an account."""
 
 
 class User(BaseModel):
@@ -81,7 +90,7 @@ def create_user(email: str, name: str, password: str, role: Role) -> User:
     # Claim the email first (atomic NX) so two simultaneous sign-ups with
     # the same address cannot both succeed.
     if not redis_client.set(f"user_email:{email}", user.user_id, nx=True):
-        raise ValueError("An account with this email already exists.")
+        raise EmailTakenError("An account with this email already exists.")
 
     redis_client.set(f"user:{user.user_id}", user.model_dump_json())
 
@@ -118,11 +127,11 @@ def _attempt_key(email: str, ip: str) -> str:
     return f"login_attempts:{normalize_email(email)}:{ip}"
 
 
-def _increment(key: str) -> int:
+def _increment(key: str, window_seconds: int = LOGIN_WINDOW_SECONDS) -> int:
     pipeline = redis_client.pipeline()
     pipeline.incr(key)
     # The window starts at the first hit and is not extended.
-    pipeline.expire(key, LOGIN_WINDOW_SECONDS, nx=True)
+    pipeline.expire(key, window_seconds, nx=True)
     count, _ = pipeline.execute()
     return count
 
@@ -143,3 +152,10 @@ def record_login_failure(ip: str) -> None:
 
 def clear_login_attempts(email: str, ip: str) -> None:
     redis_client.delete(_attempt_key(email, ip))
+
+
+def reserve_register_attempt(ip: str) -> bool:
+    return (
+        _increment(f"register_ip:{ip}", REGISTER_WINDOW_SECONDS)
+        <= REGISTER_IP_LIMIT
+    )

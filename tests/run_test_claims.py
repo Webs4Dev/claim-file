@@ -84,16 +84,26 @@ def load_claims(name_filter: str | None) -> list[tuple[str, dict]]:
 
 
 def sign_in_as_new_claimant(client: httpx.Client) -> None:
-    """Register a throwaway claimant; the session cookie stays on client."""
+    """Register a throwaway claimant and sign in; the session cookie stays
+    on client. Registering alone does not sign in."""
+    email = f"scenario-runner-{uuid4().hex[:12]}@claimfile.test"
+    password = secrets.token_urlsafe(16)
     response = client.post(
         "/auth/register",
-        json={
-            "email": f"scenario-runner-{uuid4().hex[:12]}@claimfile.test",
-            "name": "Scenario Runner",
-            "password": secrets.token_urlsafe(16),
-        },
+        json={"email": email, "name": "Scenario Runner", "password": password},
     )
     response.raise_for_status()
+    response = client.post(
+        "/auth/login",
+        json={"email": email, "password": password},
+    )
+    response.raise_for_status()
+
+    # With COOKIE_SECURE=true the session cookie is HTTPS-only, and httpx
+    # (unlike browsers on localhost) will not send it to http://127.0.0.1.
+    # Store it again without the Secure flag for this local runner.
+    for name, value in response.cookies.items():
+        client.cookies.set(name, value)
 
 
 def submit_claim(client: httpx.Client, spec: dict) -> str:
