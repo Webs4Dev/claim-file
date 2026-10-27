@@ -14,7 +14,7 @@ const TOPICS = [
   {
     Icon: Headphones,
     title: "Following up",
-    body: "Open any claim to see its latest status. If more documents are requested, an upload prompt appears on the claim page. Status updates refresh automatically.",
+    body: "Open any claim to see its latest status. If more documents are requested, an upload prompt appears on the claim page. If our automated checks don't approve your claim, you can ask a person from our team to review it from the same page.",
   },
 ];
 

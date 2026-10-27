@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 from approval.human_gate import (
     approve_claim,
     reject_claim,
+    request_review,
 )
 from auth.api import current_user, require_reviewer
 from auth.api import router as auth_router
@@ -110,6 +111,11 @@ async def reject_cross_site_writes(request: Request, call_next):
 class HumanDecisionRequest(BaseModel):
     # The decider is the signed-in reviewer, never a client-supplied name.
     reason: str | None = Field(default=None, max_length=2000)
+
+
+class ReviewRequestBody(BaseModel):
+    # Optional: what the claimant wants the reviewer to know.
+    note: str | None = Field(default=None, max_length=2000)
 
 
 def save_uploaded_file(
@@ -350,6 +356,11 @@ def build_public_response(state: ClaimState, viewer: User) -> dict:
             # Reviewer names and emails are staff data, not the claimant's.
             | ({} if is_reviewer else {"decided_by": REVIEW_TEAM_NAME})
             if state.human_approval
+            else None
+        ),
+        "review_request": (
+            state.review_request.model_dump()
+            if state.review_request
             else None
         ),
     }
@@ -781,6 +792,35 @@ def reject(
     save_claim(claim)
 
     return build_public_response(claim, reviewer)
+
+
+@api.post("/claims/{claim_id}/request-review")
+def ask_for_review(
+    claim_id: str,
+    body: ReviewRequestBody,
+    user: User = Depends(current_user),
+):
+    # Claimants only: a reviewer asking for review of their own decision
+    # would bypass the queue. load_accessible_claim 404s other people's claims.
+    if user.role != "claimant":
+        raise HTTPException(
+            status_code=403,
+            detail="Only the claimant can ask for a review.",
+        )
+
+    claim = load_accessible_claim(claim_id, user)
+
+    try:
+        claim = request_review(claim, body.note)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=str(error),
+        ) from error
+
+    save_claim(claim)
+
+    return build_public_response(claim, user)
 
 
 app = api

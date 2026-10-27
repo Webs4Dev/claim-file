@@ -176,3 +176,7 @@ export const approveClaim = (id, reason) =>
 
 export const rejectClaim = (id, reason) =>
   postJson(`/claims/${encodeURIComponent(id)}/reject`, { reason: reason || null });
+
+// Claimant only: sends an automatic rejection back to a reviewer, once.
+export const requestReview = (id, note) =>
+  postJson(`/claims/${encodeURIComponent(id)}/request-review`, { note: note || null });

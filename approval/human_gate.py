@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from state.schema import ClaimState, HumanApproval
+from state.schema import ClaimState, HumanApproval, ReviewRequest
 
 # A reviewer can settle any claim the automation handed to people: the
 # normal approval step, and claims it could not finish (internal review,
@@ -65,6 +65,37 @@ def reject_claim(
     )
 
     state.status = "terminated"
+    state.current_agent = "human_gate"
+
+    return state
+
+
+def request_review(
+    state: ClaimState,
+    note: str | None = None,
+) -> ClaimState:
+    """Send an automatic rejection back to a person, at the claimant's request.
+
+    Only a verdict nobody has looked at yet can be sent back: once a
+    reviewer has decided, human_approval is set and this is refused, so a
+    claimant can ask once per claim.
+    """
+    automatically_rejected = (
+        state.status == "complete"
+        and state.human_approval is None
+        and state.review is not None
+        and state.review.status == "REJECTED"
+    )
+    if not automatically_rejected:
+        raise ValueError(
+            "Only a claim rejected by the automated checks can be sent for review."
+        )
+
+    state.review_request = ReviewRequest(
+        requested_at=datetime.now(timezone.utc),
+        note=(note or "").strip() or None,
+    )
+    state.status = "human_approval"
     state.current_agent = "human_gate"
 
     return state

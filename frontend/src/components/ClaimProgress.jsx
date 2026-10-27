@@ -5,7 +5,9 @@ const STAGES = [
   ["submitted", "Submitted"],
   ["documents", "Documents checked"],
   ["investigation", "Investigated"],
-  ["review", "Reviewed"],
+  // The automated review. A person's review is the "decision" step, which
+  // reads "With a reviewer" while it is in progress (see below).
+  ["review", "Assessed"],
   ["decision", "Decided"],
 ];
 
@@ -48,14 +50,15 @@ function stageStates(claim) {
     let state = "pending";
     if (done[key]) state = key === "decision" && rejected ? "rejected" : "done";
     else if (key === current) state = currentState;
-    return { key, label, state };
+    const shown = key === "decision" && state === "review" ? "With a reviewer" : label;
+    return { key, label: shown, state };
   });
 }
 
 const ACTIVE_TEXT = {
   documents: "Checking documents",
   investigation: "Investigating",
-  review: "Reviewing",
+  review: "Assessing",
   decision: "Finalising",
 };
 
@@ -77,7 +80,7 @@ const STATE_TEXT = {
   rejected: "rejected",
   active: "in progress",
   waiting: "waiting for the claimant",
-  review: "with a reviewer",
+  review: "in progress",
   pending: "not started",
 };
 

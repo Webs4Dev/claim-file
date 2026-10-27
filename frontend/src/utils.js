@@ -3,7 +3,7 @@ const STATUS_LABELS = {
   in_progress: "In progress",
   waiting_for_documents: "Awaiting documents",
   budget_exceeded: "Under review",
-  human_approval: "Awaiting human review",
+  human_approval: "Awaiting decision",
   needs_internal_review: "Under review",
   complete: "Completed",
   terminated: "Closed",

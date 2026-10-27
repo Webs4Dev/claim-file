@@ -270,6 +270,12 @@ class HumanApproval(BaseModel):
     reason: str | None = None
 
 
+class ReviewRequest(BaseModel):
+    """The claimant asked a person to review an automatic rejection."""
+    requested_at: datetime
+    note: str | None = None
+
+
 class ClaimState(BaseModel):
     claim_id: str
     # user_id of the claimant who submitted it; None for claims created
@@ -296,6 +302,7 @@ class ClaimState(BaseModel):
     investigation: InvestigationResult | None = None
     review: ReviewResult | None = None
     human_approval: HumanApproval | None = None
+    review_request: ReviewRequest | None = None
     internal_investigation_count: int = 0
     current_agent: str = "supervisor"
     status: ClaimStatus = "pending"

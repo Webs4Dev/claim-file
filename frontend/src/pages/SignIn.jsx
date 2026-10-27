@@ -4,8 +4,8 @@ import Notice from "../components/Notice";
 
 const HIGHLIGHTS = [
   [FileCheck2, "Submit a claim in minutes", "Upload your policy, licence and survey documents in one place."],
-  [Timer, "Follow every step", "See validation, investigation and review results as they happen."],
-  [UserRoundCheck, "Decided by people", "A reviewer confirms every automated recommendation."],
+  [Timer, "Follow every step", "See where your claim is and what happens next, as it happens."],
+  [UserRoundCheck, "People stay in charge", "Any automated decision can be checked by a person from our team."],
 ];
 
 export default function SignIn({ onSignIn, onRegister }) {

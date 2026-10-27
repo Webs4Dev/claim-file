@@ -16,6 +16,7 @@ import {
   DOCUMENT_FIELDS,
   approveClaim,
   rejectClaim,
+  requestReview,
   retryClaim,
   uploadAdditionalDocuments,
 } from "../api";
@@ -48,6 +49,7 @@ function describeClaim(claim, isReviewer) {
   const decidedOn = claim.human_approval?.decided_at
     ? ` on ${formatDate(claim.human_approval.decided_at)}`
     : "";
+  const reviewRequest = claim.review_request;
 
   if (ACTIVE_STATUSES.includes(status)) {
     return {
@@ -75,7 +77,9 @@ function describeClaim(claim, isReviewer) {
         tone: "review",
         Icon: UserCheck,
         title: "A reviewer is checking your claim",
-        text: "The automated checks are finished. A person from our team will approve or reject your claim. You don't need to do anything right now.",
+        text: reviewRequest
+          ? "You asked for a person to review the automatic decision. Someone from our team will look at your claim again and make the final decision. You don't need to do anything right now."
+          : "A person from our team will approve or reject your claim. You don't need to do anything right now.",
       };
     }
     return status === "human_approval"
@@ -83,7 +87,10 @@ function describeClaim(claim, isReviewer) {
           tone: "review",
           Icon: UserCheck,
           title: "Ready for your decision",
-          text: `The automated review recommends ${humanize(claim.review?.status).toLowerCase() || "a decision"}. Check the evidence, then record your decision.`,
+          text: reviewRequest
+            ? `The automated checks rejected this claim, and the claimant asked for a person to review it on ${formatDate(reviewRequest.requested_at)}. Check the evidence, then record your decision.`
+            : `The automated review recommends ${humanize(claim.review?.status).toLowerCase() || "a decision"}. Check the evidence, then record your decision.`,
+          note: reviewRequest?.note,
         }
       : {
           tone: "review",
@@ -110,7 +117,9 @@ function describeClaim(claim, isReviewer) {
       title: isReviewer ? "Rejected" : "Your claim was not approved",
       text: claim.human_approval
         ? `Closed by a reviewer${decidedOn}.`
-        : "The automated assessment found this claim is not covered.",
+        : isReviewer
+          ? "Rejected by the automated checks. The claimant can ask for a person to review it."
+          : "Our automated checks found that your policy doesn't cover this claim. If you think this is wrong, you can ask a person from our team to review it.",
       reason: claim.human_approval?.reason || claim.review?.summary,
     };
   }
@@ -143,6 +152,9 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
   const [reasonError, setReasonError] = useState("");
   const reasonRef = useRef(null);
   const [deciding, setDeciding] = useState("");
+  const [showReviewRequest, setShowReviewRequest] = useState(false);
+  const [reviewNote, setReviewNote] = useState("");
+  const [requesting, setRequesting] = useState(false);
 
   const form = claimFormOf(claim);
   const docs = publicDocuments(claim);
@@ -186,6 +198,12 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
   const canRerun =
     isReviewer && ["needs_internal_review", "budget_exceeded"].includes(claim.status);
   const canDecide = isReviewer && REVIEW_STATUSES.includes(claim.status);
+  // Same rule as the API: an automatic rejection nobody has reviewed yet.
+  const canRequestReview =
+    !isReviewer &&
+    claim.status === "complete" &&
+    !claim.human_approval &&
+    claimOutcome(claim) === "REJECTED";
   const findings = claim.investigation?.findings || [];
   const flagged = findings.filter((f) => f.status !== "VALID").length;
   const status = describeClaim(claim, isReviewer);
@@ -259,6 +277,23 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
       setError(err.message || "Unable to record the decision.");
     } finally {
       setDeciding("");
+    }
+  }
+
+  async function handleReviewRequest(e) {
+    e.preventDefault();
+    setRequesting(true);
+    setError("");
+    try {
+      await requestReview(claimId, reviewNote.trim());
+      setReviewNote("");
+      setShowReviewRequest(false);
+      await reload({ silent: true });
+      onNotify("Review requested. A person from our team will look at your claim.");
+    } catch (err) {
+      setError(err.message || "Unable to send your review request. Please try again.");
+    } finally {
+      setRequesting(false);
     }
   }
 
@@ -482,7 +517,27 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
                 {status.reason}
               </p>
             )}
+
+            {status.note && (
+              <p className="status-card-reason">
+                <strong>Claimant's note: </strong>
+                {status.note}
+              </p>
+            )}
           </div>
+
+          {canRequestReview && (
+            <div className="status-card-action">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setShowReviewRequest((v) => !v)}
+                aria-expanded={showReviewRequest}
+              >
+                <UserCheck size={16} /> Ask for a review
+              </button>
+            </div>
+          )}
 
           {needsDocuments && !isReviewer && (
             <div className="status-card-action">
@@ -543,6 +598,49 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
                 disabled={uploading || !Object.values(files).some(Boolean)}
               >
                 {uploading ? "Uploading..." : "Submit documents"} <UploadCloud size={16} />
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      {showReviewRequest && canRequestReview && (
+        <section className="panel review-request" aria-labelledby="review-request-heading">
+          <div className="panel-heading">
+            <div>
+              <h2 id="review-request-heading">Ask for a person to review this</h2>
+              <p>
+                Someone from our team will look at your claim and documents again and make
+                the final decision. You can ask once.
+              </p>
+            </div>
+          </div>
+          <form onSubmit={handleReviewRequest}>
+            <div className="form-field">
+              <label htmlFor="review-note">What should the reviewer know? (optional)</label>
+              <textarea
+                id="review-note"
+                name="review_note"
+                value={reviewNote}
+                onChange={(e) => setReviewNote(e.target.value)}
+                maxLength={2000}
+                rows="4"
+                aria-describedby="review-note-hint"
+              />
+              <small id="review-note-hint" className="field-hint">
+                For example, a detail you think the automated checks got wrong.
+              </small>
+            </div>
+            <div className="form-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowReviewRequest(false)}
+              >
+                Cancel
+              </button>
+              <button className="btn btn-primary" type="submit" disabled={requesting}>
+                {requesting ? "Sending..." : "Send review request"}
               </button>
             </div>
           </form>
