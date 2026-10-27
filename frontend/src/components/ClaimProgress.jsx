@@ -1,5 +1,5 @@
 import { Check, X } from "lucide-react";
-import { ACTIVE_STATUSES, REVIEW_STATUSES } from "../utils";
+import { ACTIVE_STATUSES, REVIEW_STATUSES, claimOutcome } from "../utils";
 
 const STAGES = [
   ["submitted", "Submitted"],
@@ -12,18 +12,21 @@ const STAGES = [
 /** Which pipeline stages a claim has completed, from the data it carries. */
 function stageStates(claim) {
   const status = claim.status;
-  const rejected =
-    status === "terminated" ||
-    claim.human_approval?.decision === "REJECTED" ||
-    (status === "complete" && claim.review?.status === "REJECTED");
+  const outcome = claimOutcome(claim);
+  const rejected = outcome === "REJECTED" || status === "terminated";
+  // Once a claim is with a reviewer the automated stages are over. Claimants
+  // do not receive the investigation/review data until a decision, so the
+  // status has to say so too.
+  const automatedDone = REVIEW_STATUSES.includes(status) || Boolean(outcome);
 
   const done = {
     submitted: true,
-    documents: Boolean(claim.document_validation || claim.extracted_data || claim.investigation),
-    investigation: Boolean(claim.investigation),
-    review: Boolean(claim.review),
-    decision:
-      Boolean(claim.human_approval?.decision) || ["complete", "terminated"].includes(status),
+    documents: Boolean(
+      claim.document_validation || claim.extracted_data || claim.investigation || automatedDone,
+    ),
+    investigation: Boolean(claim.investigation) || automatedDone,
+    review: Boolean(claim.review) || automatedDone,
+    decision: Boolean(outcome) || status === "terminated",
   };
 
   // Uploading the requested documents restarts assessment from document
@@ -59,7 +62,10 @@ const ACTIVE_TEXT = {
 /** One short phrase for what the claim is doing or waiting for. */
 function summaryOf(claim, stages) {
   const current = stages.find((s) => !["done", "rejected"].includes(s.state));
-  if (!current) return stages.at(-1).state === "rejected" ? "Rejected" : "Decided";
+  if (!current) {
+    if (claim.status === "terminated" && !claimOutcome(claim)) return "Closed";
+    return stages.at(-1).state === "rejected" ? "Rejected" : "Decided";
+  }
   if (claim.status === "waiting_for_documents") return "Documents requested";
   if (REVIEW_STATUSES.includes(claim.status)) return "Awaiting decision";
   if (current.state === "active") return ACTIVE_TEXT[current.key] || "Processing";

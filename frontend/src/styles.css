@@ -1624,7 +1624,7 @@ button:disabled {
   font: 700 22px/1.3 var(--font-head);
 }
 
-.status-card-copy > p:not(.status-card-kicker) {
+.status-card-copy p:not(.status-card-kicker) {
   max-width: 65ch;
   margin: var(--space-2) 0 0;
   color: var(--text-secondary);

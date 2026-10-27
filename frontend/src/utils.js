@@ -48,12 +48,13 @@ export const humanize = (text) => String(text || "").replaceAll("_", " ");
 export const claimFormOf = (claim) => claim?.claim_form || {};
 /**
  * "APPROVED" / "REJECTED" once a claim is decided, else null. A reviewer's
- * decision wins; otherwise the automated review's verdict on a finished claim
- * (status "complete" alone does not mean approved).
+ * decision wins; otherwise the automated verdict, but only on a "complete"
+ * claim ("complete" alone does not mean approved). "terminated" without a
+ * human decision is not an outcome: the step limit also ends claims that way.
  */
 export function claimOutcome(claim) {
   if (claim?.human_approval?.decision) return claim.human_approval.decision;
-  if (["complete", "terminated"].includes(claim?.status)) return claim.review?.status || null;
+  if (claim?.status === "complete") return claim.review?.status || null;
   return null;
 }
 

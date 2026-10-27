@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -103,7 +103,7 @@ function describeClaim(claim, isReviewer) {
       reason: claim.human_approval?.reason,
     };
   }
-  if (outcome === "REJECTED" || status === "terminated") {
+  if (outcome === "REJECTED") {
     return {
       tone: "danger",
       Icon: XCircle,
@@ -112,6 +112,16 @@ function describeClaim(claim, isReviewer) {
         ? `Closed by a reviewer${decidedOn}.`
         : "The automated assessment found this claim is not covered.",
       reason: claim.human_approval?.reason || claim.review?.summary,
+    };
+  }
+  if (status === "terminated") {
+    return {
+      tone: "danger",
+      Icon: XCircle,
+      title: isReviewer ? "Closed without a decision" : "Your claim was closed",
+      text: isReviewer
+        ? "Processing hit its step limit and stopped. Nobody approved or rejected this claim."
+        : "Automated processing stopped before a decision was made. No approval or rejection has been recorded.",
     };
   }
   return {
@@ -130,6 +140,8 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
   const [uploading, setUploading] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [decisionNote, setDecisionNote] = useState("");
+  const [reasonError, setReasonError] = useState("");
+  const reasonRef = useRef(null);
   const [deciding, setDeciding] = useState("");
 
   const form = claimFormOf(claim);
@@ -224,9 +236,12 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
   async function handleDecision(action) {
     const note = decisionNote.trim();
     if (action === "reject" && !note) {
-      setError("Add a reason before rejecting the claim.");
+      // Next to the field, not at the top of the page, which may be scrolled away.
+      setReasonError("Add a reason before rejecting the claim.");
+      reasonRef.current?.focus();
       return;
     }
+    setReasonError("");
     const prompt =
       action === "approve"
         ? "Approve this claim and mark it complete? This cannot be undone."
@@ -362,20 +377,31 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
           )}
         </p>
       )}
-      <label className="form-field">
-        <span>Reason</span>
+      <div className={`form-field ${reasonError ? "invalid" : ""}`}>
+        <label htmlFor="decision-reason">Reason</label>
         <textarea
+          id="decision-reason"
+          ref={reasonRef}
           name="decision_reason"
           value={decisionNote}
-          onChange={(e) => setDecisionNote(e.target.value)}
+          onChange={(e) => {
+            setDecisionNote(e.target.value);
+            setReasonError("");
+          }}
           maxLength={2000}
           rows="4"
-          aria-describedby="decision-reason-hint"
+          aria-invalid={Boolean(reasonError) || undefined}
+          aria-describedby={`decision-reason-hint${reasonError ? " decision-reason-error" : ""}`}
         />
+        {reasonError && (
+          <small id="decision-reason-error" className="field-error">
+            {reasonError}
+          </small>
+        )}
         <small id="decision-reason-hint" className="field-hint">
           Required to reject. The claimant will see this reason.
         </small>
-      </label>
+      </div>
       <div className="decision-actions">
         <button
           type="button"
@@ -423,15 +449,18 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
 
       {error && <Notice variant="error">{error}</Notice>}
 
-      <section className="panel claim-status-card" data-tone={status.tone} aria-live="polite">
+      <section className="panel claim-status-card" data-tone={status.tone}>
         <div className="status-card-main">
           <span className="status-card-icon" aria-hidden="true">
             <status.Icon size={22} />
           </span>
           <div className="status-card-copy">
             <p className="status-card-kicker">{isReviewer ? "Claim status" : "Where your claim is"}</p>
-            <h2>{status.title}</h2>
-            <p>{status.text}</p>
+            {/* Announced when polling changes the status; the step list is not. */}
+            <div aria-live="polite">
+              <h2>{status.title}</h2>
+              <p>{status.text}</p>
+            </div>
 
             {needsDocuments && pending.length > 0 && (
               <div className="status-card-needs">

@@ -286,8 +286,17 @@ def clear_uploaded_document_requests(
     ]
 
 
-# Statuses after which nothing about a claim is still undecided.
-FINAL_STATUSES = {"complete", "terminated"}
+# Shown to claimants instead of the reviewer's name and email.
+REVIEW_TEAM_NAME = "ClaimFile review team"
+
+
+def is_decided(state: ClaimState) -> bool:
+    """A person decided, or the pipeline finished with its own verdict.
+
+    "terminated" alone is not a decision: the step limit also ends claims
+    that way, sometimes after the model recommended approval.
+    """
+    return state.human_approval is not None or state.status == "complete"
 
 
 def build_public_response(state: ClaimState, viewer: User) -> dict:
@@ -295,9 +304,10 @@ def build_public_response(state: ClaimState, viewer: User) -> dict:
     # internal; clients identify documents by document_type.
     #
     # Claimants see the automated investigation and review verdict only once
-    # the claim is final, so they are never told "approved" by the model
+    # the claim is decided, so they are never told "approved" by the model
     # before a reviewer decides otherwise. Reviewers always see them.
-    show_assessment = viewer.role == "reviewer" or state.status in FINAL_STATUSES
+    is_reviewer = viewer.role == "reviewer"
+    show_assessment = is_reviewer or is_decided(state)
 
     return {
         "claim_id": state.claim_id,
@@ -337,6 +347,8 @@ def build_public_response(state: ClaimState, viewer: User) -> dict:
         ),
         "human_approval": (
             state.human_approval.model_dump()
+            # Reviewer names and emails are staff data, not the claimant's.
+            | ({} if is_reviewer else {"decided_by": REVIEW_TEAM_NAME})
             if state.human_approval
             else None
         ),

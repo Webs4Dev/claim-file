@@ -464,6 +464,23 @@ def test_claimants_see_the_automated_verdict_only_after_a_decision(created):
 
     assert decided["review"]["status"] == "APPROVED"
     assert decided["human_approval"]["decision"] == "REJECTED"
+    # Staff identity stays internal; the reviewer still sees who decided.
+    assert decided["human_approval"]["decided_by"] == "ClaimFile review team"
+    assert "@" in reviewer_client.get(f"/claims/{claim_id}").json()["human_approval"]["decided_by"]
+
+
+def test_step_limit_termination_does_not_show_the_verdict_to_claimants(created):
+    owner = claimant(created)
+    claim_id = submit_claim(owner, created)
+    claim = load_claim(claim_id)
+    claim.status = "terminated"  # what the supervisor does at MAX_STEPS
+    claim.review = ReviewResult(status="APPROVED", summary="Model recommends approval.")
+    save_claim(claim)
+
+    response = owner.get(f"/claims/{claim_id}").json()
+
+    assert response["review"] is None
+    assert response["human_approval"] is None
 
 
 def test_claimant_cannot_decide_claims(created):

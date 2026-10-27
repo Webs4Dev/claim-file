@@ -66,14 +66,17 @@ function FieldError({ name, label }) {
   );
 }
 
+// The error sits outside <label> so it is read once, as a description,
+// not as part of the field's name.
 function Field({ label, name, form, onChange, invalid, required, type = "text", wide }) {
   return (
-    <label className={`form-field ${wide ? "wide" : ""} ${invalid ? "invalid" : ""}`}>
-      <span>
+    <div className={`form-field ${wide ? "wide" : ""} ${invalid ? "invalid" : ""}`}>
+      <label htmlFor={name}>
         {label}
         {required && <RequiredMark />}
-      </span>
+      </label>
       <input
+        id={name}
         name={name}
         value={form[name] ?? ""}
         onChange={onChange}
@@ -85,18 +88,19 @@ function Field({ label, name, form, onChange, invalid, required, type = "text", 
         placeholder={type === "text" ? `Enter ${label.toLowerCase()}` : undefined}
       />
       {invalid && <FieldError name={name} label={label} />}
-    </label>
+    </div>
   );
 }
 
 function TextArea({ label, name, form, onChange, invalid, placeholder }) {
   return (
-    <label className={`form-field wide ${invalid ? "invalid" : ""}`}>
-      <span>
+    <div className={`form-field wide ${invalid ? "invalid" : ""}`}>
+      <label htmlFor={name}>
         {label}
         <RequiredMark />
-      </span>
+      </label>
       <textarea
+        id={name}
         name={name}
         value={form[name]}
         onChange={onChange}
@@ -107,7 +111,7 @@ function TextArea({ label, name, form, onChange, invalid, placeholder }) {
         placeholder={placeholder}
       />
       {invalid && <FieldError name={name} label={label} />}
-    </label>
+    </div>
   );
 }
 
