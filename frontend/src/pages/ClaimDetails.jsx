@@ -469,9 +469,6 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
 
       <div className="details-heading">
         <div>
-          <div className="eyebrow">
-            <span /> CLAIM
-          </div>
           <h1>Claim {claimRef(claim)}</h1>
           {subtitle && <p>{subtitle}</p>}
           <p className="details-ref">
@@ -490,7 +487,6 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
             <status.Icon size={22} />
           </span>
           <div className="status-card-copy">
-            <p className="status-card-kicker">{isReviewer ? "Claim status" : "Where your claim is"}</p>
             {/* Announced when polling changes the status; the step list is not. */}
             <div aria-live="polite">
               <h2>{status.title}</h2>

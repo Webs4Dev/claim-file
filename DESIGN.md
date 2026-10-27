@@ -233,7 +233,7 @@ A cool, near-white canvas with one teal for action and five status tones that ea
 - **Harbour Teal** (`--teal`, #087f78): primary buttons, links, active nav, focus ring (4.86:1 on white).
 - **Harbour Teal Dark** (`--teal-dark`, #066c66): hover on primary; teal text on `--teal-soft`; top of the sign-in brand gradient.
 - **Harbour Teal Darker** (`--teal-darker`, #055a55): bottom of the sign-in brand gradient.
-- **Harbour Teal Bright** (`--teal-bright`, #1fa58a): graphics only (dots, progress, eyebrow rule), 3:1. Never text.
+- **Harbour Teal Bright** (`--teal-bright`, #1fa58a): graphics only (dots, progress), 3:1. Never text.
 - **Harbour Teal Soft** (`--teal-soft`, #eaf6f4): selected/active backgrounds.
 - **Harbour Teal Line / Ring** (`--teal-line` #cfe7e3, `--teal-ring` #d7eeeb): teal borders; the soft halo around a focused input.
 - **On Brand** (`--on-brand` #e8f5f3, `--on-brand-muted` #bfe3de, `--on-brand-accent` #a8e3da): text on the dark teal sign-in panel.
@@ -287,19 +287,21 @@ are `review`.
 - **Title** (Manrope 800, 17px): panel and form section titles (h2).
 - **Body** (DM Sans 400, 16px, 1.5): claimant pages and form inputs. Inputs are always 16px (prevents zoom on iOS).
 - **Body dense** (DM Sans 400, 14px, 1.5): reviewer tables, metadata, base body size.
-- **Label** (DM Sans 600, 12–13px, 1.4): labels, badges, captions. Eyebrows and the sidebar section label are 700 with 1.35–1.4px tracking.
+- **Label** (DM Sans 600, 12–13px, 1.4): labels, badges, captions. The sidebar section label is 700 with 1.4px tracking.
 
 ### Named Rules
 **The 12px Floor Rule.** Nothing below 12px.
+
+**The Heading Speaks Rule.** No small uppercase label (eyebrow, kicker) above a heading. The heading carries its own weight.
 
 ## Layout
 
 - **Spacing scale** (`--space-*`): 4, 8, 12, 16, 20, 24, 32, 40, 56px. Use the scale only.
 - **App shell:** fixed 250px sidebar (`--sidebar-w`) on the left, sticky 68px topbar (translucent white with 12px backdrop blur), content beside it. Below 900px the sidebar collapses to a 72px icon rail; below 600px it becomes a slide-in drawer over `--scrim`.
-- **Dashboard:** four metric cards in a grid (15px gap), then the claims panel.
+- **Dashboard:** four metric cards in a grid (15px gap), then the claims panel. The claims table drops its Submitted column at 1100px and below, and becomes a stack of cards at 900px and below (reference and status, then vehicle, then progress; the whole card opens the claim).
 - **Reviewer decision:** evidence on the left, sticky decision panel on the right; stacks below 1100px.
 - **Sign-in:** two equal columns, dark teal brand panel and form.
-- **Breakpoints (max-width):** 1200px, 1100px, 900px, 600px.
+- **Breakpoints (max-width):** 1200px, 1100px, 900px, 600px. Below 600px, form buttons stack with the primary action first.
 - Works at 375, 768, 1024 and 1440px without horizontal page scroll.
 
 ## Elevation & Depth
@@ -323,7 +325,7 @@ Soft, consistent corners and 1px borders.
 - `--radius-sm` 6px: badges, chips, small buttons, inputs.
 - `--radius` 10px: buttons, cards, panels, notices, nav links.
 - `--radius-lg` 14px: large standalone surfaces (sign-in card, brand mark).
-- `--radius-pill` 999px: pills (connection status, eyebrow rule).
+- `--radius-pill` 999px: pills (connection status, filter chips).
 - `50%` only for circles (status dots, avatars).
 - The claim status card adds a 4px left edge in its tone's `-solid` colour; this is the only coloured edge.
 
@@ -337,7 +339,7 @@ Quiet and dependable: one teal primary per view, everything else outlined.
 - **Danger (Reject):** white with `--danger-line` border, `--danger-fg` text; hover `--danger-bg`. Always asks for a reason.
 - **Small:** 35px tall, 13px padding, 12.5px.
 - **Disabled:** 0.55 opacity, `not-allowed` cursor.
-- **Touch:** minimum 44px tall on touch layouts (see Known gaps).
+- **Touch:** on touch screens (`pointer: coarse`) every button, chip and icon button is at least 44×44px.
 
 ### Status badge
 - Tone `-bg` background, `-line` border, `-fg` text, 6px `currentColor` dot, `--radius-sm`, 27px tall, 12px / 600.
@@ -366,7 +368,7 @@ Quiet and dependable: one teal primary per view, everything else outlined.
 - **Topbar:** breadcrumb in 13px muted text with the current page in `--text`; connection pill with a `-solid` dot (success = connected, warning = checking, danger = disconnected).
 
 ### Claim status card (signature)
-The first thing on a claim page: a panel with a 4px left edge in the status tone, a tone icon tile, a kicker, a plain-language headline and sentence, a "what we need from you" list when the claimant must act, and one action. `data-tone` picks the tone.
+The first thing on a claim page: a panel with a 4px left edge in the status tone, a tone icon tile, a plain-language headline and sentence, a "what we need from you" list when the claimant must act, and one action. `data-tone` picks the tone.
 
 ### Tables
 - Every row is clickable *and* has a real link/button for keyboard users.
@@ -398,6 +400,8 @@ The first thing on a claim page: a panel with a 4px left edge in the status tone
 - **Don't** add shadows beyond the three in the Shadow Vocabulary.
 - **Don't** put raw hex values in components.
 - **Don't** rely on placeholder text as a label.
+- **Don't** put a small uppercase label above a heading.
+- **Don't** give anything but the claim status card a coloured side edge.
 
 ## Accessibility checklist (before calling UI done)
 
@@ -408,10 +412,6 @@ The first thing on a claim page: a panel with a 4px left edge in the status tone
 - [ ] Works at 375, 768, 1024 and 1440px without horizontal page scroll
 - [ ] `prefers-reduced-motion` respected
 
-## Known gaps (code vs. rules, as of 2026-10-27)
+## Known gaps (as of 2026-10-27)
 
-The rules above are the target; these places in `styles.css` do not meet them yet.
-
-- `.btn` is 42px tall on every layout; the 44px touch rule is not applied on mobile.
-- 14 declarations set text at 9–11px (eyebrows, sidebar section label, some mobile labels), below the 12px floor.
-- `--ease-out`, `--duration-fast` and `--duration` are defined but unused; transitions use raw `0.15s`–`0.22s ease`.
+- On phones the stacked form buttons show the primary action first, but keyboard Tab still reaches Cancel/Previous first (the DOM keeps the desktop order).

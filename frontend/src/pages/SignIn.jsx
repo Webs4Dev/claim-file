@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, FileCheck2, ShieldCheck, Timer, UserRoundCheck } from "lucide-react";
 import Notice from "../components/Notice";
 
@@ -15,6 +15,10 @@ export default function SignIn({ onSignIn, onRegister }) {
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
   const registering = mode === "register";
+
+  useEffect(() => {
+    document.title = registering ? "Create account · ClaimFile" : "Sign in · ClaimFile";
+  }, [registering]);
 
   const change = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 

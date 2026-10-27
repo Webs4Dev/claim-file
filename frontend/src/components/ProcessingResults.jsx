@@ -43,7 +43,8 @@ const DOCUMENT_TONES = { VALID: "valid", INVALID: "invalid" };
 function Verdict({ value }) {
   if (!value) return null;
   const key = String(value).toUpperCase();
-  const label = VERDICT_LABELS[key] || humanize(key.toLowerCase());
+  const words = humanize(key.toLowerCase());
+  const label = VERDICT_LABELS[key] || words.charAt(0).toUpperCase() + words.slice(1);
   return (
     <span className={`status-badge verdict tone-${VERDICT_TONES[key] || "info"}`}>
       <i aria-hidden="true" />
@@ -225,10 +226,7 @@ export default function ProcessingResults({ claim, collapsed = false }) {
           >
             <div className="finding-grid">
               {findings.map((finding, index) => (
-                <article
-                  className={`finding-card tone-edge-${VERDICT_TONES[finding.status] || "info"}`}
-                  key={`${finding.category}-${index}`}
-                >
+                <article className="finding-card" key={`${finding.category}-${index}`}>
                   <div className="finding-card-head">
                     <h4>{finding.category}</h4>
                     <Verdict value={finding.status} />

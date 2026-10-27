@@ -22,9 +22,6 @@ export default function Help() {
   return (
     <div className="help-page">
       <div className="form-page-head">
-        <div className="eyebrow">
-          <span /> HELP &amp; SUPPORT
-        </div>
         <h1>How can we help?</h1>
         <p>Quick answers about using the ClaimFile portal.</p>
       </div>

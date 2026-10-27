@@ -200,9 +200,6 @@ export default function NewClaim({ onCreated, onCancel, onNotify }) {
         <button type="button" className="back-link" onClick={onCancel}>
           <ArrowLeft size={16} /> Back to dashboard
         </button>
-        <div className="eyebrow">
-          <span /> NEW MOTOR CLAIM
-        </div>
         <h1>Let's get your claim started.</h1>
         <p>Share the incident details and upload supporting documents. Fields marked * are required.</p>
       </div>

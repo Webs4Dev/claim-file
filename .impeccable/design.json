@@ -121,6 +121,7 @@
       { "name": "The One Colour, One Meaning Rule", "body": "A status tone means the same thing on every screen and for both roles. Harbour Teal is for actions and navigation and is never used to signal a status.", "section": "colors" },
       { "name": "The Readable First Rule", "body": "Text meets 4.5:1; focus rings and control borders meet 3:1. Nothing important is lighter than `--text-muted`.", "section": "colors" },
       { "name": "The 12px Floor Rule", "body": "Nothing below 12px.", "section": "typography" },
+      { "name": "The Heading Speaks Rule", "body": "No small uppercase label (eyebrow, kicker) above a heading. The heading carries its own weight.", "section": "typography" },
       { "name": "The Three Shadows Rule", "body": "No other shadows. Allowed raw values: translucent white over the brand panel and sticky topbar (`rgba(255,255,255,…)`) and `--scrim`. Everything else is a token.", "section": "elevation" }
     ],
     "dos": [
@@ -137,7 +138,9 @@
       "Don't set text below 12px.",
       "Don't add shadows beyond the three in the Shadow Vocabulary.",
       "Don't put raw hex values in components.",
-      "Don't rely on placeholder text as a label."
+      "Don't rely on placeholder text as a label.",
+      "Don't put a small uppercase label above a heading.",
+      "Don't give anything but the claim status card a coloured side edge."
     ]
   }
 }
