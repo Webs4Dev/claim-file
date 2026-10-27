@@ -23,6 +23,8 @@ import {
   CLOSED_STATUSES,
   REVIEW_STATUSES,
   claimFormOf,
+  claimRef,
+  displayStatus,
   formatDate,
 } from "../utils";
 
@@ -150,9 +152,9 @@ export default function Dashboard({ view, user, onRecheck, onNewClaim, onOpenCla
 
   const metrics = isReviewer
     ? [
-        [Gavel, "Needs decision", countOf("decision"), "Waiting for a reviewer", "amber", "decision"],
+        [Gavel, "Needs decision", countOf("decision"), "Waiting for a reviewer", "violet", "decision"],
         [Clock3, "Processing", countOf("active"), "Automated checks running", "blue", "active"],
-        [FileWarning, "Awaiting claimant", countOf("documents"), "Documents requested", "violet", "documents"],
+        [FileWarning, "Awaiting claimant", countOf("documents"), "Documents requested", "amber", "documents"],
         [CheckCircle2, "Closed", countOf("closed"), "Approved or rejected", "mint", "closed"],
       ]
     : [
@@ -174,9 +176,6 @@ export default function Dashboard({ view, user, onRecheck, onNewClaim, onOpenCla
     <>
       <section className="welcome-row">
         <div>
-          <div className="eyebrow">
-            <span /> MOTOR INSURANCE &middot; {(heading || "Claims overview").toUpperCase()}
-          </div>
           {heading ? (
             <h1>{heading}</h1>
           ) : (
@@ -283,31 +282,34 @@ export default function Dashboard({ view, user, onRecheck, onNewClaim, onOpenCla
         </div>
 
         <div className="table-wrap">
-          <table className="claims-table">
-            <thead>
-              <tr>
-                <th>CLAIM</th>
-                <th>VEHICLE</th>
-                <th>PROGRESS</th>
-                <th>SUBMITTED</th>
-                <th>STATUS</th>
-                <th>
+          {/* Explicit roles: the phone card layout (display: grid) would otherwise
+              drop the table semantics. */}
+          <table className="claims-table" role="table">
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader">CLAIM</th>
+                <th role="columnheader">VEHICLE</th>
+                <th role="columnheader">PROGRESS</th>
+                <th role="columnheader">SUBMITTED</th>
+                <th role="columnheader">STATUS</th>
+                <th role="columnheader">
                   <span className="sr-only">Open</span>
                 </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {loading && !claims.length && <SkeletonRows />}
               {claims.map((claim) => {
                 const form = claimFormOf(claim);
                 const vehicle = [form.vehicle_make, form.vehicle_model].filter(Boolean).join(" ");
                 return (
                   <tr
+                    role="row"
                     key={claim.claim_id}
                     className={`claim-row ${changedIds.has(claim.claim_id) ? "row-updated" : ""}`}
                     onClick={() => onOpenClaim(claim.claim_id)}
                   >
-                    <td>
+                    <td role="cell">
                       <button
                         type="button"
                         className="claim-reference"
@@ -317,11 +319,11 @@ export default function Dashboard({ view, user, onRecheck, onNewClaim, onOpenCla
                         }}
                         title={claim.claim_id}
                       >
-                        {claim.claim_id.slice(0, 8).toUpperCase()} <ArrowUpRight size={13} />
+                        {claimRef(claim)} <ArrowUpRight size={13} />
                       </button>
                       <div className="table-sub">{form.insured_name || "Policyholder"}</div>
                     </td>
-                    <td>
+                    <td role="cell">
                       <span className="vehicle-cell">
                         <span className="vehicle-thumb">
                           <CarFront size={17} />
@@ -332,17 +334,17 @@ export default function Dashboard({ view, user, onRecheck, onNewClaim, onOpenCla
                         </span>
                       </span>
                     </td>
-                    <td>
+                    <td role="cell">
                       <ClaimProgress claim={claim} />
                     </td>
-                    <td>
+                    <td role="cell">
                       {formatDate(claim.created_at)}
                       <div className="table-sub">{timeAgo(submittedAt(claim), now)}</div>
                     </td>
-                    <td>
-                      <StatusBadge status={claim.status} />
+                    <td role="cell">
+                      <StatusBadge status={displayStatus(claim)} />
                     </td>
-                    <td>
+                    <td role="cell">
                       <span className="table-arrow" aria-hidden="true">
                         &rarr;
                       </span>
@@ -351,8 +353,8 @@ export default function Dashboard({ view, user, onRecheck, onNewClaim, onOpenCla
                 );
               })}
               {!loading && !claims.length && (
-                <tr>
-                  <td colSpan="6">
+                <tr role="row">
+                  <td role="cell" colSpan="6">
                     <div className="empty-state">
                       {isReviewer && filter === "decision" ? (
                         <CheckCircle2 size={28} />

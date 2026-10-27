@@ -1,29 +1,34 @@
 import { Check, X } from "lucide-react";
-import { ACTIVE_STATUSES, REVIEW_STATUSES } from "../utils";
+import { ACTIVE_STATUSES, REVIEW_STATUSES, claimOutcome } from "../utils";
 
 const STAGES = [
   ["submitted", "Submitted"],
   ["documents", "Documents checked"],
   ["investigation", "Investigated"],
-  ["review", "Reviewed"],
+  // The automated review. A person's review is the "decision" step, which
+  // reads "With a reviewer" while it is in progress (see below).
+  ["review", "Assessed"],
   ["decision", "Decided"],
 ];
 
 /** Which pipeline stages a claim has completed, from the data it carries. */
 function stageStates(claim) {
   const status = claim.status;
-  const rejected =
-    status === "terminated" ||
-    claim.human_approval?.decision === "REJECTED" ||
-    (status === "complete" && claim.review?.status === "REJECTED");
+  const outcome = claimOutcome(claim);
+  const rejected = outcome === "REJECTED" || status === "terminated";
+  // Once a claim is with a reviewer the automated stages are over. Claimants
+  // do not receive the investigation/review data until a decision, so the
+  // status has to say so too.
+  const automatedDone = REVIEW_STATUSES.includes(status) || Boolean(outcome);
 
   const done = {
     submitted: true,
-    documents: Boolean(claim.document_validation || claim.extracted_data || claim.investigation),
-    investigation: Boolean(claim.investigation),
-    review: Boolean(claim.review),
-    decision:
-      Boolean(claim.human_approval?.decision) || ["complete", "terminated"].includes(status),
+    documents: Boolean(
+      claim.document_validation || claim.extracted_data || claim.investigation || automatedDone,
+    ),
+    investigation: Boolean(claim.investigation) || automatedDone,
+    review: Boolean(claim.review) || automatedDone,
+    decision: Boolean(outcome) || status === "terminated",
   };
 
   // Uploading the requested documents restarts assessment from document
@@ -35,31 +40,35 @@ function stageStates(claim) {
   const current = STAGES.find(([key]) => !done[key])?.[0];
 
   // What the first unfinished stage is doing right now.
+  // "waiting" = the claimant must act; "review" = with a reviewer.
   let currentState = "pending";
   if (ACTIVE_STATUSES.includes(status)) currentState = "active";
-  else if (status === "waiting_for_documents" || REVIEW_STATUSES.includes(status)) {
-    currentState = "waiting";
-  }
+  else if (status === "waiting_for_documents") currentState = "waiting";
+  else if (REVIEW_STATUSES.includes(status)) currentState = "review";
 
   return STAGES.map(([key, label]) => {
     let state = "pending";
     if (done[key]) state = key === "decision" && rejected ? "rejected" : "done";
     else if (key === current) state = currentState;
-    return { key, label, state };
+    const shown = key === "decision" && state === "review" ? "With a reviewer" : label;
+    return { key, label: shown, state };
   });
 }
 
 const ACTIVE_TEXT = {
   documents: "Checking documents",
   investigation: "Investigating",
-  review: "Reviewing",
+  review: "Assessing",
   decision: "Finalising",
 };
 
 /** One short phrase for what the claim is doing or waiting for. */
 function summaryOf(claim, stages) {
   const current = stages.find((s) => !["done", "rejected"].includes(s.state));
-  if (!current) return stages.at(-1).state === "rejected" ? "Rejected" : "Decided";
+  if (!current) {
+    if (claim.status === "terminated" && !claimOutcome(claim)) return "Closed";
+    return stages.at(-1).state === "rejected" ? "Rejected" : "Decided";
+  }
   if (claim.status === "waiting_for_documents") return "Documents requested";
   if (REVIEW_STATUSES.includes(claim.status)) return "Awaiting decision";
   if (current.state === "active") return ACTIVE_TEXT[current.key] || "Processing";
@@ -70,7 +79,8 @@ const STATE_TEXT = {
   done: "complete",
   rejected: "rejected",
   active: "in progress",
-  waiting: "waiting",
+  waiting: "waiting for the claimant",
+  review: "in progress",
   pending: "not started",
 };
 

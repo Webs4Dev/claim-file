@@ -1,5 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
+import { claimRef } from "./utils";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
 import Toast from "./components/Toast";
@@ -46,10 +47,26 @@ function Portal({ user, onLogout }) {
   };
   const openClaim = (id) => navigate(`/claims/${encodeURIComponent(id)}`);
   const sidebarPage = page === "details" ? "claims" : page;
+  const contentRef = useRef(null);
 
+  // One title per screen, so tabs, history and screen readers say where you are.
+  useEffect(() => {
+    const titles = {
+      dashboard: isReviewer ? "Review queue" : "Dashboard",
+      claims: isReviewer ? "All claims" : "My claims",
+      new: "New claim",
+      details: `Claim ${claimRef({ claim_id: claimId })}`,
+      help: "Help",
+    };
+    document.title = `${titles[page]} · ClaimFile`;
+  }, [page, claimId, isReviewer]);
 
   return (
     <div className="app-shell">
+      {/* A button, not href="#...": the hash is the router. */}
+      <button type="button" className="skip-link" onClick={() => contentRef.current?.focus()}>
+        Skip to content
+      </button>
       <div
         className={`mobile-scrim ${mobileOpen ? "visible" : ""}`}
         onClick={() => setMobileOpen(false)}
@@ -74,7 +91,7 @@ function Portal({ user, onLogout }) {
           user={user}
           onLogout={onLogout}
         />
-        <div className="page-content">
+        <div className="page-content" ref={contentRef} tabIndex={-1}>
           {(page === "dashboard" || page === "claims") && (
             <Dashboard
               key={page}

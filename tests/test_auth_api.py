@@ -21,6 +21,7 @@ from auth.store import (
     find_user_by_email,
     normalize_email,
 )
+from state.schema import ReviewResult
 from state.store import delete_claim, load_claim, redis_client, save_claim
 
 PASSWORD = "correct horse battery"
@@ -443,6 +444,45 @@ def awaiting_approval(owner, created) -> str:
     return claim_id
 
 
+def test_claimants_see_the_automated_verdict_only_after_a_decision(created):
+    owner = claimant(created)
+    claim_id = awaiting_approval(owner, created)
+    claim = load_claim(claim_id)
+    claim.review = ReviewResult(status="APPROVED", summary="Model recommends approval.")
+    save_claim(claim)
+    reviewer_client = reviewer(created)
+
+    waiting = owner.get(f"/claims/{claim_id}").json()
+    for_reviewer = reviewer_client.get(f"/claims/{claim_id}").json()
+    listed = owner.get("/claims").json()["claims"][0]
+
+    assert waiting["review"] is None and listed["review"] is None
+    assert for_reviewer["review"]["status"] == "APPROVED"
+
+    reviewer_client.post(f"/claims/{claim_id}/reject", json={"reason": "Damage not covered."})
+    decided = owner.get(f"/claims/{claim_id}").json()
+
+    assert decided["review"]["status"] == "APPROVED"
+    assert decided["human_approval"]["decision"] == "REJECTED"
+    # Staff identity stays internal; the reviewer still sees who decided.
+    assert decided["human_approval"]["decided_by"] == "ClaimFile review team"
+    assert "@" in reviewer_client.get(f"/claims/{claim_id}").json()["human_approval"]["decided_by"]
+
+
+def test_step_limit_termination_does_not_show_the_verdict_to_claimants(created):
+    owner = claimant(created)
+    claim_id = submit_claim(owner, created)
+    claim = load_claim(claim_id)
+    claim.status = "terminated"  # what the supervisor does at MAX_STEPS
+    claim.review = ReviewResult(status="APPROVED", summary="Model recommends approval.")
+    save_claim(claim)
+
+    response = owner.get(f"/claims/{claim_id}").json()
+
+    assert response["review"] is None
+    assert response["human_approval"] is None
+
+
 def test_claimant_cannot_decide_claims(created):
     owner = claimant(created)
     claim_id = awaiting_approval(owner, created)
@@ -467,6 +507,15 @@ def test_reviewer_decision_records_signed_in_reviewer(created):
     assert response.json()["status"] == "complete"
 
 
+def test_reject_without_a_reason_is_refused(created):
+    claim_id = awaiting_approval(claimant(created), created)
+
+    response = reviewer(created).post(f"/claims/{claim_id}/reject", json={"reason": "  "})
+
+    assert response.status_code == 400
+    assert load_claim(claim_id).status == "human_approval"
+
+
 def test_reviewer_cannot_decide_own_claim(created):
     reviewer_client = reviewer(created)
     claim_id = awaiting_approval(reviewer_client, created)
@@ -475,6 +524,88 @@ def test_reviewer_cannot_decide_own_claim(created):
 
     assert response.status_code == 403
     assert load_claim(claim_id).status == "human_approval"
+
+
+def automatically_rejected(owner, created) -> str:
+    claim_id = submit_claim(owner, created)
+    claim = load_claim(claim_id)
+    claim.status = "complete"
+    claim.review = ReviewResult(status="REJECTED", summary="Not covered.")
+    save_claim(claim)
+    return claim_id
+
+
+def test_claimant_can_ask_for_review_of_an_automatic_rejection(created):
+    owner = claimant(created)
+    claim_id = automatically_rejected(owner, created)
+
+    response = owner.post(f"/claims/{claim_id}/request-review", json={"note": "Please check the survey."})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "human_approval"
+    assert body["review_request"]["note"] == "Please check the survey."
+    # Back with a reviewer, so the claimant no longer sees the model's verdict.
+    assert body["review"] is None
+    # Asking twice is refused: the claim is no longer an automatic rejection.
+    assert owner.post(f"/claims/{claim_id}/request-review", json={}).status_code == 409
+
+
+def test_reviewer_sees_the_request_and_a_decision_ends_it(created):
+    owner = claimant(created)
+    claim_id = automatically_rejected(owner, created)
+    owner.post(f"/claims/{claim_id}/request-review", json={"note": "Check the FIR."})
+    reviewer_client = reviewer(created)
+
+    assert reviewer_client.get(f"/claims/{claim_id}").json()["review_request"]["note"] == "Check the FIR."
+    response = reviewer_client.post(f"/claims/{claim_id}/reject", json={"reason": "FIR confirms it."})
+
+    assert response.status_code == 200
+    assert response.json()["review_request"]["note"] == "Check the FIR."
+    # Decided by a person now, so it cannot be sent back again.
+    assert owner.post(f"/claims/{claim_id}/request-review", json={}).status_code == 409
+
+
+def test_only_the_owner_can_ask_for_review(created):
+    claim_id = automatically_rejected(claimant(created), created)
+
+    assert claimant(created).post(f"/claims/{claim_id}/request-review", json={}).status_code == 404
+    assert reviewer(created).post(f"/claims/{claim_id}/request-review", json={}).status_code == 403
+    assert load_claim(claim_id).status == "complete"
+
+
+def test_review_request_refused_for_claims_not_automatically_rejected(created):
+    owner = claimant(created)
+    claim_id = awaiting_approval(owner, created)
+
+    response = owner.post(f"/claims/{claim_id}/request-review", json={})
+
+    assert response.status_code == 409
+    assert load_claim(claim_id).review_request is None
+
+
+def test_review_request_rejects_cross_site_posts(created):
+    owner = claimant(created)
+    claim_id = automatically_rejected(owner, created)
+
+    response = owner.post(
+        f"/claims/{claim_id}/request-review",
+        json={},
+        headers={"Origin": "https://evil.example"},
+    )
+
+    assert response.status_code == 403
+    assert load_claim(claim_id).status == "complete"
+
+
+def test_review_request_note_is_limited(created):
+    owner = claimant(created)
+    claim_id = automatically_rejected(owner, created)
+
+    response = owner.post(f"/claims/{claim_id}/request-review", json={"note": "x" * 2001})
+
+    assert response.status_code == 422
+    assert load_claim(claim_id).status == "complete"
 
 
 def test_retry_is_reviewer_only(created):

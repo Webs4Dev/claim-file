@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, FileCheck2, ShieldCheck, Timer, UserRoundCheck } from "lucide-react";
 import Notice from "../components/Notice";
 
 const HIGHLIGHTS = [
   [FileCheck2, "Submit a claim in minutes", "Upload your policy, licence and survey documents in one place."],
-  [Timer, "Follow every step", "See validation, investigation and review results as they happen."],
-  [UserRoundCheck, "Decided by people", "A reviewer confirms every automated recommendation."],
+  [Timer, "Follow every step", "See where your claim is and what happens next, as it happens."],
+  [UserRoundCheck, "People stay in charge", "Any automated decision can be checked by a person from our team."],
 ];
 
 export default function SignIn({ onSignIn, onRegister }) {
@@ -15,6 +15,10 @@ export default function SignIn({ onSignIn, onRegister }) {
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
   const registering = mode === "register";
+
+  useEffect(() => {
+    document.title = registering ? "Create account · ClaimFile" : "Sign in · ClaimFile";
+  }, [registering]);
 
   const change = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
@@ -103,7 +107,7 @@ export default function SignIn({ onSignIn, onRegister }) {
           </p>
 
           {error && <Notice variant="error">{error}</Notice>}
-          {info && <Notice>{info}</Notice>}
+          {info && <Notice variant="success">{info}</Notice>}
 
           {registering && (
             <label className="form-field">

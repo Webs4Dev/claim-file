@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from state.schema import ClaimState, HumanApproval
+from state.schema import ClaimState, HumanApproval, ReviewRequest
 
 # A reviewer can settle any claim the automation handed to people: the
 # normal approval step, and claims it could not finish (internal review,
@@ -53,14 +53,50 @@ def reject_claim(
     if not decided_by.strip():
         raise ValueError("decided_by cannot be empty.")
 
+    # The claimant is shown this reason, so a rejection always has one.
+    if not (reason or "").strip():
+        raise ValueError("Add a reason before rejecting the claim.")
+
     state.human_approval = HumanApproval(
         decision="REJECTED",
         decided_by=decided_by.strip(),
         decided_at=datetime.now(timezone.utc),
-        reason=reason,
+        reason=reason.strip(),
     )
 
     state.status = "terminated"
+    state.current_agent = "human_gate"
+
+    return state
+
+
+def request_review(
+    state: ClaimState,
+    note: str | None = None,
+) -> ClaimState:
+    """Send an automatic rejection back to a person, at the claimant's request.
+
+    Only a verdict nobody has looked at yet can be sent back, and only once:
+    an earlier request (review_request) or a reviewer's decision
+    (human_approval) makes the claim ineligible.
+    """
+    automatically_rejected = (
+        state.status == "complete"
+        and state.human_approval is None
+        and state.review_request is None
+        and state.review is not None
+        and state.review.status == "REJECTED"
+    )
+    if not automatically_rejected:
+        raise ValueError(
+            "Only a claim rejected by the automated checks can be sent for review."
+        )
+
+    state.review_request = ReviewRequest(
+        requested_at=datetime.now(timezone.utc),
+        note=(note or "").strip() or None,
+    )
+    state.status = "human_approval"
     state.current_agent = "human_gate"
 
     return state

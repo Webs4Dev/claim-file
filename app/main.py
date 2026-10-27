@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 from approval.human_gate import (
     approve_claim,
     reject_claim,
+    request_review,
 )
 from auth.api import current_user, require_reviewer
 from auth.api import router as auth_router
@@ -110,6 +111,11 @@ async def reject_cross_site_writes(request: Request, call_next):
 class HumanDecisionRequest(BaseModel):
     # The decider is the signed-in reviewer, never a client-supplied name.
     reason: str | None = Field(default=None, max_length=2000)
+
+
+class ReviewRequestBody(BaseModel):
+    # Optional: what the claimant wants the reviewer to know.
+    note: str | None = Field(default=None, max_length=2000)
 
 
 def save_uploaded_file(
@@ -286,9 +292,29 @@ def clear_uploaded_document_requests(
     ]
 
 
-def build_public_response(state: ClaimState) -> dict:
+# Shown to claimants instead of the reviewer's name and email.
+REVIEW_TEAM_NAME = "ClaimFile review team"
+
+
+def is_decided(state: ClaimState) -> bool:
+    """A person decided, or the pipeline finished with its own verdict.
+
+    "terminated" alone is not a decision: the step limit also ends claims
+    that way, sometimes after the model recommended approval.
+    """
+    return state.human_approval is not None or state.status == "complete"
+
+
+def build_public_response(state: ClaimState, viewer: User) -> dict:
     # Server file paths (state.documents, each document's file_path) stay
     # internal; clients identify documents by document_type.
+    #
+    # Claimants see the automated investigation and review verdict only once
+    # the claim is decided, so they are never told "approved" by the model
+    # before a reviewer decides otherwise. Reviewers always see them.
+    is_reviewer = viewer.role == "reviewer"
+    show_assessment = is_reviewer or is_decided(state)
+
     return {
         "claim_id": state.claim_id,
         "owner_id": state.owner_id,
@@ -317,17 +343,24 @@ def build_public_response(state: ClaimState) -> dict:
         ),
         "investigation": (
             state.investigation.model_dump()
-            if state.investigation
+            if state.investigation and show_assessment
             else None
         ),
         "review": (
             state.review.model_dump()
-            if state.review
+            if state.review and show_assessment
             else None
         ),
         "human_approval": (
             state.human_approval.model_dump()
+            # Reviewer names and emails are staff data, not the claimant's.
+            | ({} if is_reviewer else {"decided_by": REVIEW_TEAM_NAME})
             if state.human_approval
+            else None
+        ),
+        "review_request": (
+            state.review_request.model_dump()
+            if state.review_request
             else None
         ),
     }
@@ -429,7 +462,7 @@ def get_claims(
 
     return {
         "claims": [
-            build_public_response(claim)
+            build_public_response(claim, user)
             for claim in page.claims
         ],
         "total": page.total,
@@ -495,7 +528,7 @@ def create_claim(
         if existing_id:
             existing = load_claim(existing_id)
             if existing is not None:
-                return build_public_response(existing)
+                return build_public_response(existing, user)
 
     uploaded_documents = collect_initial_documents(
         policy_schedule,
@@ -545,14 +578,14 @@ def create_claim(
         claim_directory.rmdir()
         existing = load_claim(existing_id) if existing_id else None
         if existing is not None:
-            return build_public_response(existing)
+            return build_public_response(existing, user)
         raise HTTPException(
             status_code=409,
             detail="This submission is still being received. Retry with the same request.",
         )
 
     background_tasks.add_task(process_claim, claim_id)
-    return build_public_response(state)
+    return build_public_response(state, user)
 
 
 @api.post("/claims/{claim_id}/retry")
@@ -593,14 +626,14 @@ def retry_claim(
 
     save_claim(claim)
     background_tasks.add_task(process_claim, claim_id)
-    return build_public_response(claim)
+    return build_public_response(claim, reviewer)
 
 
 @api.get("/claims/{claim_id}")
 def get_claim(claim_id: str, user: User = Depends(current_user)):
     claim = load_accessible_claim(claim_id, user)
 
-    return build_public_response(claim)
+    return build_public_response(claim, user)
 
 
 @api.post("/claims/{claim_id}/documents")
@@ -692,7 +725,7 @@ def upload_documents(
     save_claim(claim)
     background_tasks.add_task(process_claim, claim_id)
 
-    return build_public_response(claim)
+    return build_public_response(claim, user)
 
 
 @api.post("/claims/{claim_id}/approve")
@@ -725,7 +758,7 @@ def approve(
 
     save_claim(claim)
 
-    return build_public_response(claim)
+    return build_public_response(claim, reviewer)
 
 
 @api.post("/claims/{claim_id}/reject")
@@ -758,7 +791,36 @@ def reject(
 
     save_claim(claim)
 
-    return build_public_response(claim)
+    return build_public_response(claim, reviewer)
+
+
+@api.post("/claims/{claim_id}/request-review")
+def ask_for_review(
+    claim_id: str,
+    body: ReviewRequestBody,
+    user: User = Depends(current_user),
+):
+    # Claimants only: a reviewer asking for review of their own decision
+    # would bypass the queue. load_accessible_claim 404s other people's claims.
+    if user.role != "claimant":
+        raise HTTPException(
+            status_code=403,
+            detail="Only the claimant can ask for a review.",
+        )
+
+    claim = load_accessible_claim(claim_id, user)
+
+    try:
+        claim = request_review(claim, body.note)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=409,
+            detail=str(error),
+        ) from error
+
+    save_claim(claim)
+
+    return build_public_response(claim, user)
 
 
 app = api

@@ -3,7 +3,7 @@ const STATUS_LABELS = {
   in_progress: "In progress",
   waiting_for_documents: "Awaiting documents",
   budget_exceeded: "Under review",
-  human_approval: "Awaiting human review",
+  human_approval: "Awaiting decision",
   needs_internal_review: "Under review",
   complete: "Completed",
   terminated: "Closed",
@@ -46,6 +46,28 @@ export function formatDate(value) {
 
 export const humanize = (text) => String(text || "").replaceAll("_", " ");
 export const claimFormOf = (claim) => claim?.claim_form || {};
+/**
+ * "APPROVED" / "REJECTED" once a claim is decided, else null. A reviewer's
+ * decision wins; otherwise the automated verdict, but only on a "complete"
+ * claim ("complete" alone does not mean approved). "terminated" without a
+ * human decision is not an outcome: the step limit also ends claims that way.
+ */
+export function claimOutcome(claim) {
+  if (claim?.human_approval?.decision) return claim.human_approval.decision;
+  if (claim?.status === "complete") return claim.review?.status || null;
+  return null;
+}
+
+/** The status to show people: the outcome when decided, else the workflow status. */
+export function displayStatus(claim) {
+  const outcome = claimOutcome(claim);
+  if (outcome === "APPROVED") return "approved";
+  if (outcome === "REJECTED") return "rejected";
+  return claim?.status;
+}
+
+/** Short reference shown to people, e.g. "283FD52A". */
+export const claimRef = (claim) => String(claim?.claim_id || "").slice(0, 8).toUpperCase();
 export const publicDocuments = (claim) => claim?.claim_documents || [];
 
 export const initialsOf = (name) =>

@@ -1,15 +1,19 @@
-import { ChevronDown, ClipboardCheck, FileSearch, ScanSearch, UserCheck } from "lucide-react";
+import { ChevronDown, ClipboardCheck, FileSearch, FileText, ScanSearch, UserCheck } from "lucide-react";
 import { formatDate, humanize } from "../utils";
 
-/** Agent verdicts -> existing status-badge tones. */
+/**
+ * Agent verdicts -> status tones (DESIGN.md): a concern is for a reviewer to
+ * weigh (review); missing evidence is something the claimant can supply
+ * (warning).
+ */
 const VERDICT_TONES = {
   VALID: "success",
   APPROVED: "success",
   INVALID: "danger",
   REJECTED: "danger",
-  CONCERN: "warning",
-  NEEDS_INVESTIGATION: "warning",
-  INSUFFICIENT_EVIDENCE: "review",
+  CONCERN: "review",
+  NEEDS_INVESTIGATION: "review",
+  INSUFFICIENT_EVIDENCE: "warning",
 };
 
 const VERDICT_LABELS = {
@@ -17,10 +21,30 @@ const VERDICT_LABELS = {
   NEEDS_INVESTIGATION: "Needs investigation",
 };
 
+/** Problems first, so a reviewer reads what needs judgement before what passed. */
+const FINDING_ORDER = { INVALID: 0, CONCERN: 1, INSUFFICIENT_EVIDENCE: 2, VALID: 3 };
+
+/**
+ * Documents each investigation check relies on. Findings do not record their
+ * source document, so these are shown as "related", not as citations.
+ */
+const RELATED_DOCUMENTS = {
+  "Policy Validity": ["policy_schedule", "policy_document"],
+  "Driver and Licence Information": ["driving_license"],
+  "Vehicle Information": ["vehicle_registration", "policy_schedule"],
+  "Accident Information": ["accident_report", "police_report", "fir_document", "damage_survey_report"],
+  "Damage Information": ["damage_survey_report", "repair_estimate", "repair_invoice"],
+  "Third-Party Involvement": ["accident_report", "police_report", "fir_document"],
+  "Police/FIR Information": ["police_report", "fir_document"],
+};
+
+const DOCUMENT_TONES = { VALID: "valid", INVALID: "invalid" };
+
 function Verdict({ value }) {
   if (!value) return null;
   const key = String(value).toUpperCase();
-  const label = VERDICT_LABELS[key] || humanize(key.toLowerCase());
+  const words = humanize(key.toLowerCase());
+  const label = VERDICT_LABELS[key] || words.charAt(0).toUpperCase() + words.slice(1);
   return (
     <span className={`status-badge verdict tone-${VERDICT_TONES[key] || "info"}`}>
       <i aria-hidden="true" />
@@ -37,7 +61,7 @@ function displayValue(value) {
   return String(value);
 }
 
-function Stage({ icon: Icon, title, verdict, children }) {
+function Stage({ icon: Icon, title, verdict, note, children }) {
   return (
     <div className="result-stage">
       <div className="result-stage-head">
@@ -45,6 +69,7 @@ function Stage({ icon: Icon, title, verdict, children }) {
           <Icon size={17} />
         </span>
         <h3>{title}</h3>
+        {note && <span className="result-stage-note">{note}</span>}
         <Verdict value={verdict} />
       </div>
       {children}
@@ -128,19 +153,44 @@ function ResultList({ title, items }) {
   );
 }
 
-export default function ProcessingResults({ claim }) {
+function RelatedDocuments({ category, documents }) {
+  const types = RELATED_DOCUMENTS[category] || [];
+  const related = documents.filter((doc) => types.includes(doc.document_type));
+  if (!related.length) return null;
+  return (
+    <div className="finding-documents">
+      <span>Related documents</span>
+      <ul>
+        {related.map((doc) => {
+          const validity = String(doc.validity || "").toUpperCase();
+          return (
+            <li key={doc.document_type} className={DOCUMENT_TONES[validity] || "neutral"}>
+              <FileText size={13} aria-hidden="true" />
+              {humanize(doc.document_type)}
+              <span className="sr-only">: {validity ? validity.toLowerCase() : "not checked"}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * collapsed: for claimants. The status card already gives the outcome and the
+ * reason; the evidence behind it is there on request, not in the way.
+ */
+export default function ProcessingResults({ claim, collapsed = false }) {
   const { extracted_data: extracted, investigation, review, human_approval: decision } = claim;
   if (!extracted && !investigation && !review && !decision) return null;
 
-  return (
-    <section className="panel claim-progress-panel">
-      <div className="panel-heading">
-        <div>
-          <h2>Processing results</h2>
-          <p>What each stage of the automated assessment found</p>
-        </div>
-      </div>
+  const documents = claim.claim_documents || [];
+  const findings = [...(investigation?.findings || [])].sort(
+    (a, b) => (FINDING_ORDER[a.status] ?? 9) - (FINDING_ORDER[b.status] ?? 9),
+  );
+  const flagged = findings.filter((f) => f.status !== "VALID").length;
 
+  const stages = (
       <div className="result-stages">
         {decision && (
           <Stage icon={UserCheck} title="Human decision" verdict={decision.decision}>
@@ -153,7 +203,7 @@ export default function ProcessingResults({ claim }) {
         )}
 
         {review && (
-          <Stage icon={ClipboardCheck} title="Review" verdict={review.status}>
+          <Stage icon={ClipboardCheck} title="Automated review" verdict={review.status}>
             {review.summary && <p className="result-summary">{review.summary}</p>}
             <ResultList title="Concerns" items={review.concerns} />
             <ResultList title="Required actions" items={review.required_actions} />
@@ -162,13 +212,21 @@ export default function ProcessingResults({ claim }) {
         )}
 
         {investigation && (
-          <Stage icon={ScanSearch} title="Investigation" verdict={investigation.overall_status}>
+          <Stage
+            icon={ScanSearch}
+            title="Investigation"
+            verdict={investigation.overall_status}
+            note={
+              findings.length
+                ? flagged
+                  ? `${flagged} of ${findings.length} checks need attention`
+                  : `All ${findings.length} checks passed`
+                : null
+            }
+          >
             <div className="finding-grid">
-              {(investigation.findings || []).map((finding, index) => (
-                <article
-                  className={`finding-card tone-edge-${VERDICT_TONES[finding.status] || "info"}`}
-                  key={`${finding.category}-${index}`}
-                >
+              {findings.map((finding, index) => (
+                <article className="finding-card" key={`${finding.category}-${index}`}>
                   <div className="finding-card-head">
                     <h4>{finding.category}</h4>
                     <Verdict value={finding.status} />
@@ -180,6 +238,7 @@ export default function ProcessingResults({ claim }) {
                       {finding.evidence}
                     </p>
                   )}
+                  <RelatedDocuments category={finding.category} documents={documents} />
                 </article>
               ))}
             </div>
@@ -206,6 +265,37 @@ export default function ProcessingResults({ claim }) {
           </details>
         )}
       </div>
+  );
+
+  if (collapsed) {
+    return (
+      <details className="panel claim-progress-panel assessment-details">
+        <summary className="panel-heading">
+          <div>
+            <h2>How your claim was checked</h2>
+            {/* Visual only: keeps the toggle's spoken name short. */}
+            <p aria-hidden="true">The automated checks and the evidence behind the decision</p>
+          </div>
+          <span className="assessment-toggle">
+            <span className="when-closed">See how this was checked</span>
+            <span className="when-open">Hide details</span>
+            <ChevronDown size={16} aria-hidden="true" />
+          </span>
+        </summary>
+        {stages}
+      </details>
+    );
+  }
+
+  return (
+    <section className="panel claim-progress-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>Assessment</h2>
+          <p>What the automated checks found, problems first</p>
+        </div>
+      </div>
+      {stages}
     </section>
   );
 }
