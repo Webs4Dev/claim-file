@@ -99,6 +99,12 @@ def sign_in_as_new_claimant(client: httpx.Client) -> None:
     )
     response.raise_for_status()
 
+    # With COOKIE_SECURE=true the session cookie is HTTPS-only, and httpx
+    # (unlike browsers on localhost) will not send it to http://127.0.0.1.
+    # Store it again without the Secure flag for this local runner.
+    for name, value in response.cookies.items():
+        client.cookies.set(name, value)
+
 
 def submit_claim(client: httpx.Client, spec: dict) -> str:
     handles = {

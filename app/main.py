@@ -28,7 +28,7 @@ from approval.human_gate import (
 from auth.api import current_user, require_reviewer
 from auth.api import router as auth_router
 from auth.store import User
-from config import ALLOWED_ORIGINS
+from config import ALLOWED_ORIGINS, PROXY_TRUST_CONFIGURED
 from graph.workflow import app as workflow_app
 from state.schema import (
     ClaimDocument,
@@ -47,6 +47,13 @@ from tools.documents import SUPPORTED_DOCUMENT_EXTENSIONS
 
 
 logger = logging.getLogger(__name__)
+
+if not PROXY_TRUST_CONFIGURED:
+    logger.warning(
+        "FORWARDED_ALLOW_IPS is not set, so uvicorn trusts X-Forwarded-For "
+        "from 127.0.0.1 and client IPs (login limits) can be spoofed. "
+        "Start uvicorn with --env-file .env."
+    )
 
 UPLOAD_DIRECTORY = Path("data/uploads")
 

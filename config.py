@@ -1,4 +1,3 @@
-import logging
 import os
 
 from dotenv import load_dotenv
@@ -6,13 +5,9 @@ from dotenv import load_dotenv
 
 # uvicorn decides which proxies to trust before this module runs, so the
 # value only counts if it was in the environment already (--env-file .env).
-# Checked before load_dotenv(), which would hide a missing --env-file.
-if "FORWARDED_ALLOW_IPS" not in os.environ:
-    logging.getLogger(__name__).warning(
-        "FORWARDED_ALLOW_IPS is not set, so uvicorn trusts X-Forwarded-For "
-        "from 127.0.0.1 and client IPs (login limits) can be spoofed. "
-        "Start uvicorn with --env-file .env."
-    )
+# Read before load_dotenv(), which would hide a missing --env-file; the API
+# warns at startup when this is False.
+PROXY_TRUST_CONFIGURED = "FORWARDED_ALLOW_IPS" in os.environ
 
 load_dotenv()
 
@@ -21,7 +16,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
 MAX_STEPS = int(os.getenv("MAX_STEPS", "10"))
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", "10000"))
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "50000"))
 MAX_COST = float(os.getenv("MAX_COST", "0.10"))
 
 # Send the session cookie over HTTPS only. Safe by default; set false
