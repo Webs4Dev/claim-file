@@ -658,7 +658,7 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
       ) : (
         <>
           {detailsGrid}
-          <ProcessingResults claim={claim} />
+          <ProcessingResults claim={claim} collapsed={!isReviewer} />
         </>
       )}
 

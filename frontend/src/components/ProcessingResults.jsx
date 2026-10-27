@@ -175,7 +175,11 @@ function RelatedDocuments({ category, documents }) {
   );
 }
 
-export default function ProcessingResults({ claim }) {
+/**
+ * collapsed: for claimants. The status card already gives the outcome and the
+ * reason; the evidence behind it is there on request, not in the way.
+ */
+export default function ProcessingResults({ claim, collapsed = false }) {
   const { extracted_data: extracted, investigation, review, human_approval: decision } = claim;
   if (!extracted && !investigation && !review && !decision) return null;
 
@@ -185,15 +189,7 @@ export default function ProcessingResults({ claim }) {
   );
   const flagged = findings.filter((f) => f.status !== "VALID").length;
 
-  return (
-    <section className="panel claim-progress-panel">
-      <div className="panel-heading">
-        <div>
-          <h2>Assessment</h2>
-          <p>What the automated checks found, problems first</p>
-        </div>
-      </div>
-
+  const stages = (
       <div className="result-stages">
         {decision && (
           <Stage icon={UserCheck} title="Human decision" verdict={decision.decision}>
@@ -271,6 +267,37 @@ export default function ProcessingResults({ claim }) {
           </details>
         )}
       </div>
+  );
+
+  if (collapsed) {
+    return (
+      <details className="panel claim-progress-panel assessment-details">
+        <summary className="panel-heading">
+          <div>
+            <h2>How your claim was checked</h2>
+            {/* Visual only: keeps the toggle's spoken name short. */}
+            <p aria-hidden="true">The automated checks and the evidence behind the decision</p>
+          </div>
+          <span className="assessment-toggle">
+            <span className="when-closed">See how this was checked</span>
+            <span className="when-open">Hide details</span>
+            <ChevronDown size={16} aria-hidden="true" />
+          </span>
+        </summary>
+        {stages}
+      </details>
+    );
+  }
+
+  return (
+    <section className="panel claim-progress-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>Assessment</h2>
+          <p>What the automated checks found, problems first</p>
+        </div>
+      </div>
+      {stages}
     </section>
   );
 }
