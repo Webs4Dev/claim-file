@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -17,6 +17,7 @@ import ClaimProgress from "../components/ClaimProgress";
 import Metric from "../components/Metric";
 import Notice from "../components/Notice";
 import StatusBadge from "../components/StatusBadge";
+import useClaims from "../hooks/useClaims";
 import {
   ACTIVE_STATUSES,
   CLOSED_STATUSES,
@@ -25,13 +26,16 @@ import {
   formatDate,
 } from "../utils";
 
-const FILTERS = {
-  all: () => true,
-  decision: (c) => REVIEW_STATUSES.includes(c.status),
-  documents: (c) => c.status === "waiting_for_documents",
-  active: (c) => ACTIVE_STATUSES.includes(c.status),
-  closed: (c) => CLOSED_STATUSES.includes(c.status),
+// Statuses sent to the server for each filter; null = every claim.
+const FILTER_STATUSES = {
+  all: null,
+  decision: REVIEW_STATUSES,
+  documents: ["waiting_for_documents"],
+  active: ACTIVE_STATUSES,
+  closed: CLOSED_STATUSES,
 };
+
+const SEARCH_DELAY_MS = 300;
 
 const CLAIMANT_CHIPS = [
   ["all", "All"],
@@ -98,47 +102,51 @@ function SkeletonRows() {
   ));
 }
 
-export default function Dashboard({
-  view,
-  user,
-  claims,
-  loading,
-  error,
-  stale,
-  updatedAt,
-  changedIds,
-  onRefresh,
-  onNewClaim,
-  onOpenClaim,
-}) {
+export default function Dashboard({ view, user, onRecheck, onNewClaim, onOpenClaim }) {
   const isReviewer = user.role === "reviewer";
   const isOverview = view === "dashboard";
   const chips = isReviewer ? REVIEWER_CHIPS : CLAIMANT_CHIPS;
   const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
   const [filter, setFilter] = useState(isReviewer && isOverview ? "decision" : "all");
   const now = useNow(60000);
 
-  const countOf = (key) => claims.filter(FILTERS[key]).length;
+  // Search on the server once typing pauses, not on every keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(search.trim()), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    // The reviewer queue is worked oldest-first: longest waiting on top.
-    const oldestFirst = isReviewer && filter === "decision";
-    return claims
-      .filter((claim) => {
-        const form = claimFormOf(claim);
-        const matches = [
-          claim.claim_id,
-          form.insured_name,
-          form.vehicle_registration_number,
-          form.policy_number,
-        ].some((value) => String(value || "").toLowerCase().includes(query));
-        return matches && FILTERS[filter](claim);
-      })
-      .sort((a, b) =>
-        oldestFirst ? submittedAt(a) - submittedAt(b) : submittedAt(b) - submittedAt(a),
-      );
-  }, [claims, search, filter, isReviewer]);
+  // The reviewer queue is worked oldest-first: longest waiting on top.
+  const {
+    claims,
+    total,
+    statusCounts,
+    loading,
+    error,
+    stale,
+    updatedAt,
+    changedIds,
+    refresh,
+    canLoadMore,
+    loadMore,
+  } = useClaims({
+    statuses: FILTER_STATUSES[filter],
+    query,
+    oldestFirst: isReviewer && filter === "decision",
+  });
+
+  const onRefresh = () => {
+    onRecheck();
+    refresh();
+  };
+
+  // Counts cover every claim the user may see, whatever is listed below.
+  const allCount = Object.values(statusCounts).reduce((sum, count) => sum + count, 0);
+  const countOf = (key) =>
+    key === "all"
+      ? allCount
+      : FILTER_STATUSES[key].reduce((sum, status) => sum + (statusCounts[status] || 0), 0);
 
   const metrics = isReviewer
     ? [
@@ -148,7 +156,7 @@ export default function Dashboard({
         [CheckCircle2, "Closed", countOf("closed"), "Approved or rejected", "mint", "closed"],
       ]
     : [
-        [ClipboardList, "Total claims", claims.length, "Everything you've submitted", "mint", "all"],
+        [ClipboardList, "Total claims", allCount, "Everything you've submitted", "mint", "all"],
         [Clock3, "In progress", countOf("active"), "Being assessed now", "blue", "active"],
         [FileWarning, "Action needed", countOf("documents"), "Documents requested", "amber", "documents"],
         [ShieldCheck, "Under review", countOf("decision"), "With a reviewer", "violet", "decision"],
@@ -214,7 +222,7 @@ export default function Dashboard({
               <Metric
                 Icon={Icon}
                 title={title}
-                value={loading && !claims.length ? "–" : value}
+                value={updatedAt ? value : "–"}
                 note={note}
                 tone={tone}
               />
@@ -254,6 +262,7 @@ export default function Dashboard({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search claim, policyholder, vehicle or policy"
+              maxLength={100}
               aria-label="Search claims"
             />
           </label>
@@ -267,7 +276,7 @@ export default function Dashboard({
                 aria-pressed={filter === key}
               >
                 {label}
-                <span>{key === "all" ? claims.length : countOf(key)}</span>
+                <span>{countOf(key)}</span>
               </button>
             ))}
           </div>
@@ -289,7 +298,7 @@ export default function Dashboard({
             </thead>
             <tbody>
               {loading && !claims.length && <SkeletonRows />}
-              {filtered.map((claim) => {
+              {claims.map((claim) => {
                 const form = claimFormOf(claim);
                 const vehicle = [form.vehicle_make, form.vehicle_model].filter(Boolean).join(" ");
                 return (
@@ -341,7 +350,7 @@ export default function Dashboard({
                   </tr>
                 );
               })}
-              {!loading && !filtered.length && (
+              {!loading && !claims.length && (
                 <tr>
                   <td colSpan="6">
                     <div className="empty-state">
@@ -374,10 +383,23 @@ export default function Dashboard({
 
         <div className="panel-foot">
           <span>
-            Showing <strong>{filtered.length}</strong> of {claims.length} claim
-            {claims.length === 1 ? "" : "s"}
+            Showing <strong>{claims.length}</strong> of {total} claim
+            {total === 1 ? "" : "s"}
           </span>
-          <span>Updates automatically</span>
+          {canLoadMore ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-small"
+              onClick={loadMore}
+              disabled={loading}
+            >
+              Load more
+            </button>
+          ) : claims.length < total ? (
+            <span>Search or filter to find older claims</span>
+          ) : (
+            <span>Updates automatically</span>
+          )}
         </div>
       </section>
     </>

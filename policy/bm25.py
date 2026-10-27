@@ -95,7 +95,9 @@ def get_index_path(
 def build_bm25_index(
     chunks: list[dict],
     product: str,
+    index_path: Path | None = None,
 ) -> None:
+    """Write the index to index_path (default: the live index file)."""
 
     if not chunks:
         raise ValueError(
@@ -178,7 +180,11 @@ def build_bm25_index(
         corpus
     )
 
-    INDEX_PATH.mkdir(
+    index_path = index_path or get_index_path(
+        product
+    )
+
+    index_path.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
@@ -192,10 +198,6 @@ def build_bm25_index(
             for key, value in bm25.idf.items()
         },
     }
-
-    index_path = get_index_path(
-        product
-    )
 
     index_path.write_text(
         json.dumps(

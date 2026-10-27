@@ -35,8 +35,6 @@ def build_document_text(
             (
                 f"DOCUMENT TYPE: "
                 f"{document.document_type}\n"
-                f"FILE: "
-                f"{document.file_path}\n"
                 f"VALIDITY: "
                 f"{document.validity}\n"
                 f"CONTENT:\n"

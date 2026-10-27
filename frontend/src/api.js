@@ -91,11 +91,24 @@ export const register = (name, email, password) =>
   postJson("/auth/register", { name, email, password });
 export const signOut = () => postJson("/auth/logout", {});
 
-export async function listClaims() {
-  const data = await apiRequest("/claims");
-  const items = Array.isArray(data) ? data : data?.claims;
-  if (!Array.isArray(items)) throw new Error("Unexpected claims list format.");
-  return items;
+export const CLAIMS_PAGE_SIZE = 50;
+/** The API's largest page; past this, users narrow with search or filters. */
+export const CLAIMS_MAX_LOADED = 200;
+
+/**
+ * One page of claims, filtered, searched and ordered by the server.
+ * Resolves to { claims, total, status_counts }; status_counts covers every
+ * claim the user may see, ignoring the filters.
+ */
+export async function listClaims({ statuses, query, oldestFirst, limit = CLAIMS_PAGE_SIZE } = {}) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (statuses?.length) params.set("status", statuses.join(","));
+  if (query) params.set("q", query);
+  if (oldestFirst) params.set("order", "oldest");
+
+  const data = await apiRequest(`/claims?${params}`);
+  if (!Array.isArray(data?.claims)) throw new Error("Unexpected claims list format.");
+  return data;
 }
 
 export const getClaim = (id) => apiRequest(`/claims/${encodeURIComponent(id)}`);

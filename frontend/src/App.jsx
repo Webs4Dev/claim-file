@@ -5,7 +5,6 @@ import Sidebar from "./components/Sidebar";
 import Toast from "./components/Toast";
 import useApiHealth from "./hooks/useApiHealth";
 import useAuth from "./hooks/useAuth";
-import useClaims from "./hooks/useClaims";
 import useHashRoute from "./hooks/useHashRoute";
 import ClaimDetails from "./pages/ClaimDetails";
 import Dashboard from "./pages/Dashboard";
@@ -33,7 +32,6 @@ export default function App() {
 function Portal({ user, onLogout }) {
   const { page: routedPage, claimId, navigate } = useHashRoute();
   const { healthy, recheck } = useApiHealth();
-  const { claims, loading, error, stale, updatedAt, changedIds, refresh } = useClaims();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [toast, setToast] = useState("");
   const clearToast = useCallback(() => setToast(""), []);
@@ -49,15 +47,6 @@ function Portal({ user, onLogout }) {
   const openClaim = (id) => navigate(`/claims/${encodeURIComponent(id)}`);
   const sidebarPage = page === "details" ? "claims" : page;
 
-  const handleCreated = (id) => {
-    refresh({ silent: true });
-    openClaim(id);
-  };
-
-  const refreshAll = () => {
-    recheck();
-    refresh();
-  };
 
   return (
     <div className="app-shell">
@@ -91,20 +80,14 @@ function Portal({ user, onLogout }) {
               key={page}
               view={page}
               user={user}
-              claims={claims}
-              loading={loading}
-              error={error}
-              stale={stale}
-              updatedAt={updatedAt}
-              changedIds={changedIds}
-              onRefresh={refreshAll}
+              onRecheck={recheck}
               onNewClaim={() => go("new")}
               onOpenClaim={openClaim}
             />
           )}
           {page === "new" && (
             <NewClaim
-              onCreated={handleCreated}
+              onCreated={openClaim}
               onCancel={() => go("dashboard")}
               onNotify={setToast}
             />
@@ -116,7 +99,6 @@ function Portal({ user, onLogout }) {
               user={user}
               onBack={() => go("claims")}
               onNotify={setToast}
-              onChanged={() => refresh({ silent: true })}
             />
           )}
           {page === "help" && <Help />}

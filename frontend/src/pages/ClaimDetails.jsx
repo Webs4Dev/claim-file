@@ -59,7 +59,7 @@ function describeStatus(status) {
   return ["Claim received", "Your claim has been received and is being processed."];
 }
 
-export default function ClaimDetails({ claimId, user, onBack, onNotify, onChanged }) {
+export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
   const { claim, loading, error, setError, reload } = useClaim(claimId);
   const isReviewer = user.role === "reviewer";
   const [showUpload, setShowUpload] = useState(false);
@@ -136,7 +136,6 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify, onChange
     try {
       await retryClaim(claimId);
       await reload({ silent: true });
-      onChanged();
       onNotify("Claim processing restarted.");
     } catch (err) {
       setError(err.message || "Unable to restart claim processing.");
@@ -163,7 +162,6 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify, onChange
       const send = action === "approve" ? approveClaim : rejectClaim;
       await send(claimId, note);
       await reload({ silent: true });
-      onChanged();
       onNotify(action === "approve" ? "Claim approved and completed." : "Claim rejected and closed.");
     } catch (err) {
       setError(err.message || "Unable to record the decision.");
@@ -180,7 +178,6 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify, onChange
       setFiles({});
       setShowUpload(false);
       await reload({ silent: true });
-      onChanged();
       onNotify("Documents submitted successfully.");
     } catch (err) {
       setError(err.message || "Unable to upload additional documents.");

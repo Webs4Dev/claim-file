@@ -12,6 +12,7 @@ export default function SignIn({ onSignIn, onRegister }) {
   const [mode, setMode] = useState("signin");
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
   const registering = mode === "register";
 
@@ -20,15 +21,24 @@ export default function SignIn({ onSignIn, onRegister }) {
   function switchMode(next) {
     setMode(next);
     setError("");
+    setInfo("");
   }
 
   async function submit(e) {
     e.preventDefault();
     setError("");
+    setInfo("");
     setBusy(true);
     try {
-      if (registering) await onRegister(form.name, form.email, form.password);
-      else await onSignIn(form.email, form.password);
+      if (registering) {
+        await onRegister(form.name, form.email, form.password);
+        setMode("signin");
+        setForm((f) => ({ ...f, password: "" }));
+        setInfo("Account created. Sign in with your email and password.");
+        setBusy(false);
+      } else {
+        await onSignIn(form.email, form.password);
+      }
     } catch (err) {
       setError(err.message || "Something went wrong. Please try again.");
       setBusy(false);
@@ -93,6 +103,7 @@ export default function SignIn({ onSignIn, onRegister }) {
           </p>
 
           {error && <Notice variant="error">{error}</Notice>}
+          {info && <Notice>{info}</Notice>}
 
           {registering && (
             <label className="form-field">

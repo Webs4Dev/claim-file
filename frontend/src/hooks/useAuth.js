@@ -24,8 +24,10 @@ export default function useAuth() {
     setUser(await signIn(email, password));
   }, []);
 
+  // Registering does not sign in (so it can't reveal which emails have
+  // accounts); the caller asks the user to sign in next.
   const createAccount = useCallback(async (name, email, password) => {
-    setUser(await register(name, email, password));
+    await register(name, email, password);
   }, []);
 
   const logout = useCallback(async () => {

@@ -1,7 +1,18 @@
+import logging
 import os
 
 from dotenv import load_dotenv
 
+
+# uvicorn decides which proxies to trust before this module runs, so the
+# value only counts if it was in the environment already (--env-file .env).
+# Checked before load_dotenv(), which would hide a missing --env-file.
+if "FORWARDED_ALLOW_IPS" not in os.environ:
+    logging.getLogger(__name__).warning(
+        "FORWARDED_ALLOW_IPS is not set, so uvicorn trusts X-Forwarded-For "
+        "from 127.0.0.1 and client IPs (login limits) can be spoofed. "
+        "Start uvicorn with --env-file .env."
+    )
 
 load_dotenv()
 
@@ -13,8 +24,9 @@ MAX_STEPS = int(os.getenv("MAX_STEPS", "10"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "10000"))
 MAX_COST = float(os.getenv("MAX_COST", "0.10"))
 
-# Send the session cookie over HTTPS only. Keep false for local http.
-COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+# Send the session cookie over HTTPS only. Safe by default; set false
+# only for local development over plain http.
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() == "true"
 
 # Browser origins allowed to call the API (CORS and the CSRF origin check).
 ALLOWED_ORIGINS = [

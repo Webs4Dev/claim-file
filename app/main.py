@@ -2,6 +2,7 @@ import json
 import logging
 import shutil
 from pathlib import Path
+from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import (
@@ -14,10 +15,11 @@ from fastapi import (
     Request,
     UploadFile,
     Header,
+    Query,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from approval.human_gate import (
     approve_claim,
@@ -49,6 +51,8 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIRECTORY = Path("data/uploads")
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+MAX_PAGE_SIZE = 200
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 UPLOAD_DIRECTORY.mkdir(
@@ -153,15 +157,21 @@ def parse_claim_form(claim_form: str) -> ClaimForm:
     except json.JSONDecodeError as error:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid claim_form JSON: {error}",
+            detail="claim_form is not valid JSON.",
         ) from error
 
     try:
         return ClaimForm.model_validate(data)
-    except Exception as error:
+    except ValidationError as error:
+        # Name the fields only; the full pydantic message echoes the input
+        # and internal model details.
+        fields = sorted({
+            ".".join(str(part) for part in issue["loc"]) or "claim_form"
+            for issue in error.errors()
+        })
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid claim form: {error}",
+            detail=f"Check these claim form fields: {', '.join(fields)}.",
         ) from error
 
 
@@ -270,15 +280,16 @@ def clear_uploaded_document_requests(
 
 
 def build_public_response(state: ClaimState) -> dict:
+    # Server file paths (state.documents, each document's file_path) stay
+    # internal; clients identify documents by document_type.
     return {
         "claim_id": state.claim_id,
         "owner_id": state.owner_id,
         "created_at": state.created_at.isoformat(),
         "claim_form": state.claim_form.model_dump(),
         "status": state.status,
-        "documents": state.documents,
         "claim_documents": [
-            document.model_dump()
+            document.model_dump(exclude={"file_path"})
             for document in state.claim_documents
         ],
         "pending_documents": [
@@ -291,7 +302,9 @@ def build_public_response(state: ClaimState) -> dict:
             else None
         ),
         "document_validation": (
-            state.document_validation.model_dump()
+            state.document_validation.model_dump(
+                exclude={"documents": {"__all__": {"file_path"}}}
+            )
             if state.document_validation
             else None
         ),
@@ -379,20 +392,44 @@ def health_check():
 
 
 @api.get("/claims")
-def get_claims(user: User = Depends(current_user)):
-    claims = list_claims()
+def get_claims(
+    status: str | None = Query(
+        None,
+        max_length=300,
+        description="Comma-separated statuses to include; omit for all.",
+    ),
+    q: str = Query("", max_length=100),
+    order: Literal["newest", "oldest"] = "newest",
+    limit: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(current_user),
+):
+    statuses = {
+        value.strip()
+        for value in (status or "").split(",")
+        if value.strip()
+    }
 
-    if user.role != "reviewer":
-        claims = [
-            claim
-            for claim in claims
-            if claim.owner_id == user.user_id
-        ]
+    page = list_claims(
+        # Claimants only ever see their own claims.
+        owner_id=None if user.role == "reviewer" else user.user_id,
+        statuses=statuses or None,
+        query=q,
+        oldest_first=order == "oldest",
+        offset=offset,
+        limit=limit,
+    )
 
-    return [
-        build_public_response(claim)
-        for claim in claims
-    ]
+    return {
+        "claims": [
+            build_public_response(claim)
+            for claim in page.claims
+        ],
+        "total": page.total,
+        "status_counts": page.status_counts,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 def save_initial_documents(
@@ -412,10 +449,7 @@ def save_initial_documents(
         except Exception as error:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"Invalid document type "
-                    f"{document_type}: {error}"
-                ),
+                detail=f"Invalid document type {document_type}.",
             ) from error
 
         document.file_path = save_uploaded_file(

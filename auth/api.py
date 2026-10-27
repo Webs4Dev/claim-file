@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from auth.passwords import verify_password
 from auth.store import (
     SESSION_TTL_SECONDS,
+    EmailTakenError,
     User,
     clear_login_attempts,
     create_session,
@@ -12,6 +13,7 @@ from auth.store import (
     find_user_by_email,
     record_login_failure,
     reserve_login_attempt,
+    reserve_register_attempt,
     user_for_session,
 )
 from config import COOKIE_SECURE
@@ -33,8 +35,9 @@ class LoginRequest(BaseModel):
 
 
 def client_ip(request: Request) -> str:
-    # Direct peer address. Behind a reverse proxy this is the proxy, so a
-    # deployment must derive the client IP from trusted forwarding headers.
+    # uvicorn rewrites request.client from X-Forwarded-For only when the
+    # direct peer is listed in FORWARDED_ALLOW_IPS (see .env.example), so a
+    # client cannot pick its own IP to dodge the login limits.
     return request.client.host if request.client else "unknown"
 
 
@@ -77,18 +80,35 @@ def require_reviewer(user: User = Depends(current_user)) -> User:
     return user
 
 
+REGISTERED = {
+    "status": "registered",
+    "message": "Account created. Sign in to continue.",
+}
+
+
 @router.post("/register")
-def register(body: RegisterRequest, request: Request, response: Response):
+def register(body: RegisterRequest, request: Request):
     # Public sign-up always creates a claimant. Reviewer accounts are made
     # with scripts/create_reviewer.py so nobody can promote themselves.
-    try:
-        user = create_user(body.email, body.name, body.password, "claimant")
-    except ValueError as error:
-        status = 409 if "already exists" in str(error) else 400
-        raise HTTPException(status_code=status, detail=str(error)) from error
+    #
+    # A taken email gets the same answer as a new one, and nobody is signed
+    # in here, so sign-up cannot be used to find out who has an account.
+    # create_user hashes the password before checking the email, so both
+    # paths take about the same time.
+    if not reserve_register_attempt(client_ip(request)):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many sign-ups from this network. Try again later.",
+        )
 
-    start_session(request, response, user)
-    return user.public()
+    try:
+        create_user(body.email, body.name, body.password, "claimant")
+    except EmailTakenError:
+        pass
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    return REGISTERED
 
 
 @router.post("/login")

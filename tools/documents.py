@@ -1,6 +1,10 @@
+import logging
 from pathlib import Path
 
 import pymupdf
+
+
+logger = logging.getLogger(__name__)
 
 
 # Expand ligatures such as "ﬁ" into plain letters so extracted text matches
@@ -107,10 +111,13 @@ def validate_document_file(
 
     try:
         text = read_document(path)
-    except Exception as error:
+    except Exception:
+        # The reason is shown to users; parser errors can include server
+        # file paths, so they only go to the log.
+        logger.exception("Could not read document %s", path)
         return (
             False,
-            f"Document could not be read: {error}",
+            "Document could not be read.",
         )
 
     if not text.strip():
