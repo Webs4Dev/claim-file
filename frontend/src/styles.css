@@ -1405,47 +1405,21 @@ button:disabled {
   background: var(--danger-bg);
 }
 
+.mini-status.needed {
+  color: var(--warning-fg);
+  background: var(--warning-bg);
+}
+
 .mini-status.neutral {
   color: var(--text-muted);
   background: var(--surface-muted);
 }
 
-.request-banner {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 13px;
-  margin-bottom: 18px;
-  padding: 17px;
-  border: 1px solid var(--warning-line);
-  border-radius: var(--radius);
-  background: var(--warning-bg);
-}
 
-.request-banner strong {
-  color: var(--warning-fg);
-  font-size: 14px;
-}
 
-.request-banner p,
-.request-banner li span {
-  color: var(--warning-fg);
-  font-size: 13px;
-  line-height: 1.6;
-}
 
-.request-banner p {
-  margin: 4px 0 0;
-}
 
-.request-banner ul {
-  margin: 8px 0 0;
-  padding-left: 18px;
-}
 
-.request-banner li {
-  margin-top: 6px;
-}
 
 .additional-upload {
   margin-top: 18px;
@@ -1474,57 +1448,187 @@ button:disabled {
   margin: 20px 22px 0;
 }
 
-.status-explanation {
+
+
+
+
+
+
+
+
+.details-heading .details-ref {
+  margin-top: var(--space-2);
+  font-size: 13px;
+}
+
+.selectable {
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+.details-footnote {
   display: flex;
-  gap: 12px;
-  margin: 0 22px;
-  padding: 15px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-subtle);
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
-.status-large-dot {
+/* ---------- Claim status card (top of the claim page) ---------- */
+/* data-tone picks the status colour from DESIGN.md. */
+.claim-status-card {
+  --tone-fg: var(--info-fg);
+  --tone-bg: var(--info-bg);
+  --tone-solid: var(--info-solid);
+  margin-bottom: var(--space-5);
+  border-left: 4px solid var(--tone-solid);
+}
+
+.claim-status-card[data-tone="success"] {
+  --tone-fg: var(--success-fg);
+  --tone-bg: var(--success-bg);
+  --tone-solid: var(--success-solid);
+}
+
+.claim-status-card[data-tone="warning"] {
+  --tone-fg: var(--warning-fg);
+  --tone-bg: var(--warning-bg);
+  --tone-solid: var(--warning-solid);
+}
+
+.claim-status-card[data-tone="review"] {
+  --tone-fg: var(--review-fg);
+  --tone-bg: var(--review-bg);
+  --tone-solid: var(--review-solid);
+}
+
+.claim-status-card[data-tone="danger"] {
+  --tone-fg: var(--danger-fg);
+  --tone-bg: var(--danger-bg);
+  --tone-solid: var(--danger-solid);
+}
+
+.status-card-main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-6) var(--space-5);
+}
+
+.status-card-icon {
+  display: grid;
   flex-shrink: 0;
-  width: 10px;
-  height: 10px;
-  margin-top: 5px;
-  border-radius: 50%;
-  background: var(--teal-bright);
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  color: var(--tone-fg);
+  background: var(--tone-bg);
 }
 
-.status-large-dot.warn {
-  background: var(--warning-solid);
+.status-card-copy {
+  flex: 1;
+  min-width: 0;
 }
 
-.status-large-dot.review {
-  background: var(--review-solid);
+.status-card-kicker {
+  margin: 0 0 var(--space-1);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-.status-explanation strong {
+.status-card-copy h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font: 700 22px/1.3 var(--font-head);
+}
+
+.status-card-copy > p:not(.status-card-kicker) {
+  max-width: 65ch;
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.status-card-needs {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--warning-line);
+  border-radius: var(--radius);
+  background: var(--warning-bg);
+}
+
+.status-card-needs strong {
+  color: var(--warning-fg);
   font-size: 14px;
 }
 
-.status-explanation p {
-  margin: 3px 0 0;
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.65;
+.status-card-needs ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
 }
 
-.detail-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  padding: 15px 22px;
-  color: var(--text-muted);
-  font-size: 12.5px;
+.status-card-needs li + li {
+  margin-top: var(--space-1);
 }
 
-.detail-meta span {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+.status-card-needs li span {
+  color: var(--text-secondary);
+}
+
+.status-card-copy > .status-card-reason {
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--tone-solid);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--text);
+  background: var(--surface-subtle);
+  font-size: 15px;
+}
+
+.status-card-action {
+  flex-shrink: 0;
+}
+
+.claim-status-card .claim-progress.full {
+  margin: 0 var(--space-6) var(--space-6);
+}
+
+@media (max-width: 600px) {
+  .status-card-main {
+    flex-wrap: wrap;
+    padding: var(--space-5) var(--space-4) var(--space-4);
+  }
+
+  /* The coloured edge carries the tone; give the words the full width. */
+  .status-card-icon {
+    display: none;
+  }
+
+  .status-card-copy h2 {
+    font-size: 20px;
+  }
+
+  .status-card-action,
+  .status-card-action .btn {
+    width: 100%;
+  }
+
+  .status-card-action .btn {
+    justify-content: center;
+    min-height: 44px;
+  }
+
+  .claim-status-card .claim-progress.full {
+    margin: 0 var(--space-4) var(--space-4);
+  }
 }
 
 /* ---------- Help ---------- */
@@ -2709,9 +2813,30 @@ button:disabled {
   }
 }
 
+/* Narrow screens: steps stack vertically so labels stay readable. */
 @media (max-width: 600px) {
+  .claim-progress.full ol {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .claim-progress.full .progress-step {
+    flex-direction: row;
+    gap: var(--space-3);
+    text-align: left;
+  }
+
+  .claim-progress.full .progress-step + .progress-step::before {
+    top: calc(-1 * var(--space-3));
+    right: auto;
+    left: 11px;
+    width: 2px;
+    height: var(--space-3);
+  }
+
   .claim-progress.full .progress-label {
-    font-size: 10.5px;
+    font-size: 14px;
   }
 }
 
@@ -2759,9 +2884,6 @@ button:disabled {
   flex: 1 1 100%;
 }
 
-.claim-progress-panel .request-banner {
-  margin: 16px 22px 0;
-}
 
 @media (max-width: 600px) {
   .metric-button .metric-card {

@@ -23,6 +23,8 @@ import {
   CLOSED_STATUSES,
   REVIEW_STATUSES,
   claimFormOf,
+  claimRef,
+  displayStatus,
   formatDate,
 } from "../utils";
 
@@ -317,7 +319,7 @@ export default function Dashboard({ view, user, onRecheck, onNewClaim, onOpenCla
                         }}
                         title={claim.claim_id}
                       >
-                        {claim.claim_id.slice(0, 8).toUpperCase()} <ArrowUpRight size={13} />
+                        {claimRef(claim)} <ArrowUpRight size={13} />
                       </button>
                       <div className="table-sub">{form.insured_name || "Policyholder"}</div>
                     </td>
@@ -340,7 +342,7 @@ export default function Dashboard({ view, user, onRecheck, onNewClaim, onOpenCla
                       <div className="table-sub">{timeAgo(submittedAt(claim), now)}</div>
                     </td>
                     <td>
-                      <StatusBadge status={claim.status} />
+                      <StatusBadge status={displayStatus(claim)} />
                     </td>
                     <td>
                       <span className="table-arrow" aria-hidden="true">

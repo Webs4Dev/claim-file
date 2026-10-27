@@ -46,6 +46,27 @@ export function formatDate(value) {
 
 export const humanize = (text) => String(text || "").replaceAll("_", " ");
 export const claimFormOf = (claim) => claim?.claim_form || {};
+/**
+ * "APPROVED" / "REJECTED" once a claim is decided, else null. A reviewer's
+ * decision wins; otherwise the automated review's verdict on a finished claim
+ * (status "complete" alone does not mean approved).
+ */
+export function claimOutcome(claim) {
+  if (claim?.human_approval?.decision) return claim.human_approval.decision;
+  if (["complete", "terminated"].includes(claim?.status)) return claim.review?.status || null;
+  return null;
+}
+
+/** The status to show people: the outcome when decided, else the workflow status. */
+export function displayStatus(claim) {
+  const outcome = claimOutcome(claim);
+  if (outcome === "APPROVED") return "approved";
+  if (outcome === "REJECTED") return "rejected";
+  return claim?.status;
+}
+
+/** Short reference shown to people, e.g. "283FD52A". */
+export const claimRef = (claim) => String(claim?.claim_id || "").slice(0, 8).toUpperCase();
 export const publicDocuments = (claim) => claim?.claim_documents || [];
 
 export const initialsOf = (name) =>

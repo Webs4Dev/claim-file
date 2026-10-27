@@ -2,12 +2,14 @@ import { useMemo, useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
-  CalendarDays,
   CheckCircle2,
+  Clock3,
   FileText,
+  FileWarning,
   RefreshCw,
   ShieldCheck,
   UploadCloud,
+  UserCheck,
   XCircle,
 } from "lucide-react";
 import {
@@ -24,39 +26,100 @@ import Notice from "../components/Notice";
 import StatusBadge from "../components/StatusBadge";
 import useClaim from "../hooks/useClaim";
 import {
+  ACTIVE_STATUSES,
   REVIEW_STATUSES,
   claimFormOf,
+  claimOutcome,
+  claimRef,
+  displayStatus,
   formatDate,
   humanize,
   publicDocuments,
 } from "../utils";
 
-function describeStatus(status) {
-  if (status === "waiting_for_documents") {
-    return ["Action required", "Please provide the requested documents so the claim can continue."];
+/**
+ * Where the claim is, in plain words, for whoever is looking at it.
+ * tone follows DESIGN.md: info = working, warning = claimant must act,
+ * review = with a reviewer, success / danger = outcome.
+ */
+function describeClaim(claim, isReviewer) {
+  const { status } = claim;
+  const outcome = claimOutcome(claim);
+  const decidedOn = claim.human_approval?.decided_at
+    ? ` on ${formatDate(claim.human_approval.decided_at)}`
+    : "";
+
+  if (ACTIVE_STATUSES.includes(status)) {
+    return {
+      tone: "info",
+      Icon: Clock3,
+      title: isReviewer ? "Automated checks running" : "We're checking your claim",
+      text: isReviewer
+        ? "Documents, policy and the accident details are being assessed."
+        : "We're checking your documents and policy. This usually takes a few minutes, and this page updates by itself.",
+    };
   }
-  if (status === "human_approval") {
-    return [
-      "Awaiting human review",
-      "Automated checks are complete. A reviewer will approve or reject this claim.",
-    ];
+  if (status === "waiting_for_documents") {
+    return {
+      tone: "warning",
+      Icon: FileWarning,
+      title: isReviewer ? "Waiting for the claimant" : "We need more documents from you",
+      text: isReviewer
+        ? "The claimant has been asked for the documents below."
+        : "Your claim is paused until you upload the documents below. Once they arrive we'll continue automatically.",
+    };
   }
   if (REVIEW_STATUSES.includes(status)) {
-    return [
-      "Under review",
-      "Your claim needs further review. No final decision is shown here yet.",
-    ];
+    if (!isReviewer) {
+      return {
+        tone: "review",
+        Icon: UserCheck,
+        title: "A reviewer is checking your claim",
+        text: "The automated checks are finished. A person from our team will approve or reject your claim. You don't need to do anything right now.",
+      };
+    }
+    return status === "human_approval"
+      ? {
+          tone: "review",
+          Icon: UserCheck,
+          title: "Ready for your decision",
+          text: `The automated review recommends ${humanize(claim.review?.status).toLowerCase() || "a decision"}. Check the evidence, then approve or reject below.`,
+        }
+      : {
+          tone: "review",
+          Icon: UserCheck,
+          title: "Needs a manual decision",
+          text: "The automated assessment could not finish this claim. Decide it below, or rerun processing.",
+        };
   }
-  if (status === "complete") {
-    return [
-      "Processing completed",
-      "The workflow has completed. Refer to the decision details if available.",
-    ];
+  if (outcome === "APPROVED") {
+    return {
+      tone: "success",
+      Icon: CheckCircle2,
+      title: isReviewer ? "Approved" : "Your claim is approved",
+      text: claim.human_approval
+        ? `Approved by a reviewer${decidedOn}.`
+        : "Your claim has been approved.",
+      reason: claim.human_approval?.reason,
+    };
   }
-  if (status === "terminated") {
-    return ["Claim closed", "The claim workflow has been closed."];
+  if (outcome === "REJECTED" || status === "terminated") {
+    return {
+      tone: "danger",
+      Icon: XCircle,
+      title: isReviewer ? "Rejected" : "Your claim was not approved",
+      text: claim.human_approval
+        ? `Closed by a reviewer${decidedOn}.`
+        : "The automated assessment found this claim is not covered.",
+      reason: claim.human_approval?.reason || claim.review?.summary,
+    };
   }
-  return ["Claim received", "Your claim has been received and is being processed."];
+  return {
+    tone: "info",
+    Icon: CheckCircle2,
+    title: "Processing complete",
+    text: "See the assessment details below.",
+  };
 }
 
 export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
@@ -108,13 +171,24 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
   }
 
   const needsDocuments = claim.status === "waiting_for_documents";
-  const [statusTitle, statusText] = describeStatus(claim.status);
+  const canRerun =
+    isReviewer && ["needs_internal_review", "budget_exceeded"].includes(claim.status);
+  const status = describeClaim(claim, isReviewer);
+  const pendingTypes = new Set(pending.map((d) => d.document_type));
+  const vehicle = [form.vehicle_make, form.vehicle_model].filter(Boolean).join(" ");
+  const subtitle = [
+    form.vehicle_registration_number,
+    vehicle,
+    form.accident_date && `Accident on ${form.accident_date}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   const details = [
     ["Policy number", form.policy_number],
     ["Policyholder", form.insured_name],
     ["Vehicle registration", form.vehicle_registration_number],
-    ["Vehicle", [form.vehicle_make, form.vehicle_model].filter(Boolean).join(" ")],
+    ["Vehicle", vehicle],
     ["Driver", form.driver_name],
     ["Driving licence", form.driver_license_number],
     ["Accident date", form.accident_date],
@@ -195,40 +269,115 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
       <div className="details-heading">
         <div>
           <div className="eyebrow">
-            <span /> CLAIM OVERVIEW
+            <span /> CLAIM
           </div>
-          <h1>{claim.claim_id || "Claim details"}</h1>
-          <p>Review submitted information and the latest status.</p>
+          <h1>Claim {claimRef(claim)}</h1>
+          {subtitle && <p>{subtitle}</p>}
+          <p className="details-ref">
+            Submitted {formatDate(claim.created_at)} · Reference{" "}
+            <span className="selectable">{claim.claim_id}</span>
+          </p>
         </div>
-        <StatusBadge status={claim.status} />
+        <StatusBadge status={displayStatus(claim)} />
       </div>
 
       {error && <Notice variant="error">{error}</Notice>}
 
-      {needsDocuments && (
-        <div className="request-banner">
-          <div>
-            <strong>Additional documents requested</strong>
-            <p>Upload the requested items to continue processing.</p>
-            {pending.length > 0 && (
-              <ul>
-                {pending.map((doc, i) => (
-                  <li key={i}>
-                    <strong>{doc.description || humanize(doc.document_type)}</strong>
-                    {doc.reason && <span> &mdash; {doc.reason}</span>}
-                  </li>
-                ))}
-              </ul>
+      <section className="panel claim-status-card" data-tone={status.tone} aria-live="polite">
+        <div className="status-card-main">
+          <span className="status-card-icon" aria-hidden="true">
+            <status.Icon size={22} />
+          </span>
+          <div className="status-card-copy">
+            <p className="status-card-kicker">{isReviewer ? "Claim status" : "Where your claim is"}</p>
+            <h2>{status.title}</h2>
+            <p>{status.text}</p>
+
+            {needsDocuments && pending.length > 0 && (
+              <div className="status-card-needs">
+                <strong>{isReviewer ? "Requested from the claimant" : "What we need"}</strong>
+                <ul>
+                  {pending.map((doc) => (
+                    <li key={doc.document_type}>
+                      {doc.description || humanize(doc.document_type)}
+                      {doc.reason && <span> — {doc.reason}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {status.reason && (
+              <p className="status-card-reason">
+                <strong>Reason: </strong>
+                {status.reason}
+              </p>
             )}
           </div>
-          <button
-            type="button"
-            className="btn btn-primary btn-small"
-            onClick={() => setShowUpload((v) => !v)}
-          >
-            <UploadCloud size={15} /> Upload documents
-          </button>
+
+          {needsDocuments && !isReviewer && (
+            <div className="status-card-action">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setShowUpload((v) => !v)}
+                aria-expanded={showUpload}
+              >
+                <UploadCloud size={16} /> Upload documents
+              </button>
+            </div>
+          )}
+          {canRerun && (
+            <div className="status-card-action">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleRetry}
+                disabled={retrying}
+              >
+                <RefreshCw size={15} className={retrying ? "spin" : ""} />
+                {retrying ? "Restarting..." : "Rerun processing"}
+              </button>
+            </div>
+          )}
         </div>
+        <ClaimProgress claim={claim} variant="full" />
+      </section>
+
+      {showUpload && (
+        <section className="panel additional-upload">
+          <div className="panel-heading">
+            <div>
+              <h2>Upload documents</h2>
+              <p>Choose a file for each requested document, then submit.</p>
+            </div>
+          </div>
+          <form onSubmit={handleUpload}>
+            <DocumentUpload
+              fields={uploadFields}
+              selectedFiles={files}
+              setSelectedFiles={setFiles}
+              required={pending.map((d) => d.document_type)}
+              onReject={setError}
+            />
+            <div className="form-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowUpload(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                type="submit"
+                disabled={uploading || !Object.values(files).some(Boolean)}
+              >
+                {uploading ? "Uploading..." : "Submit documents"} <UploadCloud size={16} />
+              </button>
+            </div>
+          </form>
+        </section>
       )}
 
       {isReviewer && REVIEW_STATUSES.includes(claim.status) && (
@@ -237,14 +386,6 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
             <div>
               <h2>Human review decision</h2>
               <p>
-                {claim.status === "human_approval" ? (
-                  <>
-                    Automated review recommends{" "}
-                    <strong>{humanize(claim.review?.status) || "a decision"}</strong>.
-                  </>
-                ) : (
-                  "Automated assessment could not finish this claim. Decide it yourself, or rerun processing below."
-                )}{" "}
                 Approving completes the claim; rejecting closes it. Recorded as {user.name}.
               </p>
             </div>
@@ -290,7 +431,7 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
           <div className="panel-heading">
             <div>
               <h2>Claim information</h2>
-              <p>Details submitted with your claim</p>
+              <p>{isReviewer ? "Details submitted by the claimant" : "Details you submitted"}</p>
             </div>
             <button
               type="button"
@@ -327,7 +468,7 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
           <div className="panel-heading">
             <div>
               <h2>Documents</h2>
-              <p>Uploaded files and validation status</p>
+              <p>What has been received and checked</p>
             </div>
             <span className="document-count">
               {docs.length} file{docs.length === 1 ? "" : "s"}
@@ -336,7 +477,14 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
           <div className="document-list">
             {docs.map((doc, i) => {
               const validity = String(doc.validity || "").toUpperCase();
-              const tone = validity === "VALID" ? "valid" : validity === "INVALID" ? "invalid" : "neutral";
+              const needed = pendingTypes.has(doc.document_type);
+              const [tone, label] = needed
+                ? ["needed", "Needed"]
+                : validity === "VALID"
+                  ? ["valid", "Valid"]
+                  : validity === "INVALID"
+                    ? ["invalid", "Invalid"]
+                    : ["neutral", doc.uploaded ? "Checking" : "Not uploaded"];
               return (
                 <div className="document-row" key={`${doc.document_type}-${i}`}>
                   <span className="document-row-icon">
@@ -344,9 +492,9 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
                   </span>
                   <div className="document-row-copy">
                     <strong>{humanize(doc.document_type) || "Document"}</strong>
-                    <span>{doc.uploaded ? "Uploaded" : "Not uploaded"}</span>
+                    <span>{doc.uploaded ? "Uploaded" : "Not uploaded yet"}</span>
                   </div>
-                  <span className={`mini-status ${tone}`}>{doc.validity || "Pending"}</span>
+                  <span className={`mini-status ${tone}`}>{label}</span>
                 </div>
               );
             })}
@@ -362,87 +510,10 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
 
       <ProcessingResults claim={claim} />
 
-      {showUpload && (
-        <section className="panel additional-upload">
-          <div className="panel-heading">
-            <div>
-              <h2>Upload additional documents</h2>
-              <p>Select requested documents below.</p>
-            </div>
-          </div>
-          <form onSubmit={handleUpload}>
-            <DocumentUpload
-              fields={uploadFields}
-              selectedFiles={files}
-              setSelectedFiles={setFiles}
-              required={pending.map((d) => d.document_type)}
-              onReject={setError}
-            />
-            <div className="form-actions">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setShowUpload(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                type="submit"
-                disabled={uploading || !Object.values(files).some(Boolean)}
-              >
-                {uploading ? "Uploading..." : "Submit documents"} <UploadCloud size={16} />
-              </button>
-            </div>
-          </form>
-        </section>
-      )}
-
-      <section className="panel claim-progress-panel">
-        <div className="panel-heading">
-          <div>
-            <h2>Processing status</h2>
-            <p>Customer-visible status of this claim</p>
-          </div>
-        </div>
-        <ClaimProgress claim={claim} variant="full" />
-        <div className="status-explanation">
-          <div
-            className={`status-large-dot ${
-              needsDocuments ? "warn" : REVIEW_STATUSES.includes(claim.status) ? "review" : ""
-            }`}
-          />
-          <div>
-            <strong>{statusTitle}</strong>
-            <p>{statusText}</p>
-          </div>
-        </div>
-        {isReviewer && ["needs_internal_review", "budget_exceeded"].includes(claim.status) && (
-          <div className="request-banner">
-            <div>
-              <strong>Run processing again</strong>
-              <p>Rerun the analysis with this claim’s saved details and uploaded documents.</p>
-            </div>
-            <button
-              type="button"
-              className="btn btn-primary btn-small"
-              onClick={handleRetry}
-              disabled={retrying}
-            >
-              <RefreshCw size={15} className={retrying ? "spin" : ""} />
-              {retrying ? "Restarting..." : "Rerun processing"}
-            </button>
-          </div>
-        )}
-        <div className="detail-meta">
-          <span>
-            <CalendarDays size={15} /> Submitted {formatDate(claim.created_at || claim.submitted_at)}
-          </span>
-          <span>
-            <ShieldCheck size={15} /> Claim information is handled through this portal
-          </span>
-        </div>
-      </section>
+      <p className="details-footnote">
+        <ShieldCheck size={15} aria-hidden="true" /> Claim information is handled through
+        this portal.
+      </p>
     </div>
   );
 }
