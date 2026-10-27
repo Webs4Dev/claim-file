@@ -76,13 +76,14 @@ def request_review(
 ) -> ClaimState:
     """Send an automatic rejection back to a person, at the claimant's request.
 
-    Only a verdict nobody has looked at yet can be sent back: once a
-    reviewer has decided, human_approval is set and this is refused, so a
-    claimant can ask once per claim.
+    Only a verdict nobody has looked at yet can be sent back, and only once:
+    an earlier request (review_request) or a reviewer's decision
+    (human_approval) makes the claim ineligible.
     """
     automatically_rejected = (
         state.status == "complete"
         and state.human_approval is None
+        and state.review_request is None
         and state.review is not None
         and state.review.status == "REJECTED"
     )

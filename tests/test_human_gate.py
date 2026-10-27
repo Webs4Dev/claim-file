@@ -93,6 +93,13 @@ def test_request_review_note_is_optional():
         ),
         # Still being processed or already with a reviewer.
         ClaimState(claim_id="C", status="human_approval", review=ReviewResult(status="REJECTED", summary="s")),
+        # Asked once already, even if some later path made it "complete" again.
+        ClaimState(
+            claim_id="C",
+            status="complete",
+            review=ReviewResult(status="REJECTED", summary="s"),
+            review_request={"requested_at": "2026-10-27T00:00:00Z"},
+        ),
         # Stopped at the step limit: no verdict was reached.
         ClaimState(claim_id="C", status="terminated", review=ReviewResult(status="REJECTED", summary="s")),
     ],

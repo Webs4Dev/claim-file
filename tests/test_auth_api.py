@@ -584,6 +584,20 @@ def test_review_request_refused_for_claims_not_automatically_rejected(created):
     assert load_claim(claim_id).review_request is None
 
 
+def test_review_request_rejects_cross_site_posts(created):
+    owner = claimant(created)
+    claim_id = automatically_rejected(owner, created)
+
+    response = owner.post(
+        f"/claims/{claim_id}/request-review",
+        json={},
+        headers={"Origin": "https://evil.example"},
+    )
+
+    assert response.status_code == 403
+    assert load_claim(claim_id).status == "complete"
+
+
 def test_review_request_note_is_limited(created):
     owner = claimant(created)
     claim_id = automatically_rejected(owner, created)
