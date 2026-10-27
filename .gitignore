@@ -5,3 +5,5 @@ __pycache__
 .DS_Store
 
 data/
+# Playwright CLI session logs
+.playwright-cli/

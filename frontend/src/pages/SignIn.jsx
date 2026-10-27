@@ -103,7 +103,7 @@ export default function SignIn({ onSignIn, onRegister }) {
           </p>
 
           {error && <Notice variant="error">{error}</Notice>}
-          {info && <Notice>{info}</Notice>}
+          {info && <Notice variant="success">{info}</Notice>}
 
           {registering && (
             <label className="form-field">

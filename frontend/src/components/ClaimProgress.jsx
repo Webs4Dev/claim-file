@@ -35,11 +35,11 @@ function stageStates(claim) {
   const current = STAGES.find(([key]) => !done[key])?.[0];
 
   // What the first unfinished stage is doing right now.
+  // "waiting" = the claimant must act; "review" = with a reviewer.
   let currentState = "pending";
   if (ACTIVE_STATUSES.includes(status)) currentState = "active";
-  else if (status === "waiting_for_documents" || REVIEW_STATUSES.includes(status)) {
-    currentState = "waiting";
-  }
+  else if (status === "waiting_for_documents") currentState = "waiting";
+  else if (REVIEW_STATUSES.includes(status)) currentState = "review";
 
   return STAGES.map(([key, label]) => {
     let state = "pending";
@@ -70,7 +70,8 @@ const STATE_TEXT = {
   done: "complete",
   rejected: "rejected",
   active: "in progress",
-  waiting: "waiting",
+  waiting: "waiting for the claimant",
+  review: "with a reviewer",
   pending: "not started",
 };
 

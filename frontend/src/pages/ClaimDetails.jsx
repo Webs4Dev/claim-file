@@ -409,7 +409,7 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
         <div className="status-explanation">
           <div
             className={`status-large-dot ${
-              needsDocuments || REVIEW_STATUSES.includes(claim.status) ? "warn" : ""
+              needsDocuments ? "warn" : REVIEW_STATUSES.includes(claim.status) ? "review" : ""
             }`}
           />
           <div>

@@ -150,9 +150,9 @@ export default function Dashboard({ view, user, onRecheck, onNewClaim, onOpenCla
 
   const metrics = isReviewer
     ? [
-        [Gavel, "Needs decision", countOf("decision"), "Waiting for a reviewer", "amber", "decision"],
+        [Gavel, "Needs decision", countOf("decision"), "Waiting for a reviewer", "violet", "decision"],
         [Clock3, "Processing", countOf("active"), "Automated checks running", "blue", "active"],
-        [FileWarning, "Awaiting claimant", countOf("documents"), "Documents requested", "violet", "documents"],
+        [FileWarning, "Awaiting claimant", countOf("documents"), "Documents requested", "amber", "documents"],
         [CheckCircle2, "Closed", countOf("closed"), "Approved or rejected", "mint", "closed"],
       ]
     : [
