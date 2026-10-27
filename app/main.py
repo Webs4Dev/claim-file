@@ -286,9 +286,19 @@ def clear_uploaded_document_requests(
     ]
 
 
-def build_public_response(state: ClaimState) -> dict:
+# Statuses after which nothing about a claim is still undecided.
+FINAL_STATUSES = {"complete", "terminated"}
+
+
+def build_public_response(state: ClaimState, viewer: User) -> dict:
     # Server file paths (state.documents, each document's file_path) stay
     # internal; clients identify documents by document_type.
+    #
+    # Claimants see the automated investigation and review verdict only once
+    # the claim is final, so they are never told "approved" by the model
+    # before a reviewer decides otherwise. Reviewers always see them.
+    show_assessment = viewer.role == "reviewer" or state.status in FINAL_STATUSES
+
     return {
         "claim_id": state.claim_id,
         "owner_id": state.owner_id,
@@ -317,12 +327,12 @@ def build_public_response(state: ClaimState) -> dict:
         ),
         "investigation": (
             state.investigation.model_dump()
-            if state.investigation
+            if state.investigation and show_assessment
             else None
         ),
         "review": (
             state.review.model_dump()
-            if state.review
+            if state.review and show_assessment
             else None
         ),
         "human_approval": (
@@ -429,7 +439,7 @@ def get_claims(
 
     return {
         "claims": [
-            build_public_response(claim)
+            build_public_response(claim, user)
             for claim in page.claims
         ],
         "total": page.total,
@@ -495,7 +505,7 @@ def create_claim(
         if existing_id:
             existing = load_claim(existing_id)
             if existing is not None:
-                return build_public_response(existing)
+                return build_public_response(existing, user)
 
     uploaded_documents = collect_initial_documents(
         policy_schedule,
@@ -545,14 +555,14 @@ def create_claim(
         claim_directory.rmdir()
         existing = load_claim(existing_id) if existing_id else None
         if existing is not None:
-            return build_public_response(existing)
+            return build_public_response(existing, user)
         raise HTTPException(
             status_code=409,
             detail="This submission is still being received. Retry with the same request.",
         )
 
     background_tasks.add_task(process_claim, claim_id)
-    return build_public_response(state)
+    return build_public_response(state, user)
 
 
 @api.post("/claims/{claim_id}/retry")
@@ -593,14 +603,14 @@ def retry_claim(
 
     save_claim(claim)
     background_tasks.add_task(process_claim, claim_id)
-    return build_public_response(claim)
+    return build_public_response(claim, reviewer)
 
 
 @api.get("/claims/{claim_id}")
 def get_claim(claim_id: str, user: User = Depends(current_user)):
     claim = load_accessible_claim(claim_id, user)
 
-    return build_public_response(claim)
+    return build_public_response(claim, user)
 
 
 @api.post("/claims/{claim_id}/documents")
@@ -692,7 +702,7 @@ def upload_documents(
     save_claim(claim)
     background_tasks.add_task(process_claim, claim_id)
 
-    return build_public_response(claim)
+    return build_public_response(claim, user)
 
 
 @api.post("/claims/{claim_id}/approve")
@@ -725,7 +735,7 @@ def approve(
 
     save_claim(claim)
 
-    return build_public_response(claim)
+    return build_public_response(claim, reviewer)
 
 
 @api.post("/claims/{claim_id}/reject")
@@ -758,7 +768,7 @@ def reject(
 
     save_claim(claim)
 
-    return build_public_response(claim)
+    return build_public_response(claim, reviewer)
 
 
 app = api

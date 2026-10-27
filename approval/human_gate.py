@@ -53,11 +53,15 @@ def reject_claim(
     if not decided_by.strip():
         raise ValueError("decided_by cannot be empty.")
 
+    # The claimant is shown this reason, so a rejection always has one.
+    if not (reason or "").strip():
+        raise ValueError("Add a reason before rejecting the claim.")
+
     state.human_approval = HumanApproval(
         decision="REJECTED",
         decided_by=decided_by.strip(),
         decided_at=datetime.now(timezone.utc),
-        reason=reason,
+        reason=reason.strip(),
     )
 
     state.status = "terminated"

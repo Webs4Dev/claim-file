@@ -21,6 +21,7 @@ from auth.store import (
     find_user_by_email,
     normalize_email,
 )
+from state.schema import ReviewResult
 from state.store import delete_claim, load_claim, redis_client, save_claim
 
 PASSWORD = "correct horse battery"
@@ -443,6 +444,28 @@ def awaiting_approval(owner, created) -> str:
     return claim_id
 
 
+def test_claimants_see_the_automated_verdict_only_after_a_decision(created):
+    owner = claimant(created)
+    claim_id = awaiting_approval(owner, created)
+    claim = load_claim(claim_id)
+    claim.review = ReviewResult(status="APPROVED", summary="Model recommends approval.")
+    save_claim(claim)
+    reviewer_client = reviewer(created)
+
+    waiting = owner.get(f"/claims/{claim_id}").json()
+    for_reviewer = reviewer_client.get(f"/claims/{claim_id}").json()
+    listed = owner.get("/claims").json()["claims"][0]
+
+    assert waiting["review"] is None and listed["review"] is None
+    assert for_reviewer["review"]["status"] == "APPROVED"
+
+    reviewer_client.post(f"/claims/{claim_id}/reject", json={"reason": "Damage not covered."})
+    decided = owner.get(f"/claims/{claim_id}").json()
+
+    assert decided["review"]["status"] == "APPROVED"
+    assert decided["human_approval"]["decision"] == "REJECTED"
+
+
 def test_claimant_cannot_decide_claims(created):
     owner = claimant(created)
     claim_id = awaiting_approval(owner, created)
@@ -465,6 +488,15 @@ def test_reviewer_decision_records_signed_in_reviewer(created):
     decision = response.json()["human_approval"]
     assert decision["decided_by"].startswith("Test Reviewer (")
     assert response.json()["status"] == "complete"
+
+
+def test_reject_without_a_reason_is_refused(created):
+    claim_id = awaiting_approval(claimant(created), created)
+
+    response = reviewer(created).post(f"/claims/{claim_id}/reject", json={"reason": "  "})
+
+    assert response.status_code == 400
+    assert load_claim(claim_id).status == "human_approval"
 
 
 def test_reviewer_cannot_decide_own_claim(created):

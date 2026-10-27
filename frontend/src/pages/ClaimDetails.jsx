@@ -83,13 +83,13 @@ function describeClaim(claim, isReviewer) {
           tone: "review",
           Icon: UserCheck,
           title: "Ready for your decision",
-          text: `The automated review recommends ${humanize(claim.review?.status).toLowerCase() || "a decision"}. Check the evidence, then approve or reject below.`,
+          text: `The automated review recommends ${humanize(claim.review?.status).toLowerCase() || "a decision"}. Check the evidence, then record your decision.`,
         }
       : {
           tone: "review",
           Icon: UserCheck,
           title: "Needs a manual decision",
-          text: "The automated assessment could not finish this claim. Decide it below, or rerun processing.",
+          text: "The automated assessment could not finish this claim. Record your decision, or rerun processing.",
         };
   }
   if (outcome === "APPROVED") {
@@ -173,6 +173,9 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
   const needsDocuments = claim.status === "waiting_for_documents";
   const canRerun =
     isReviewer && ["needs_internal_review", "budget_exceeded"].includes(claim.status);
+  const canDecide = isReviewer && REVIEW_STATUSES.includes(claim.status);
+  const findings = claim.investigation?.findings || [];
+  const flagged = findings.filter((f) => f.status !== "VALID").length;
   const status = describeClaim(claim, isReviewer);
   const pendingTypes = new Set(pending.map((d) => d.document_type));
   const vehicle = [form.vehicle_make, form.vehicle_model].filter(Boolean).join(" ");
@@ -259,6 +262,143 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
       setUploading(false);
     }
   }
+
+  const detailsGrid = (
+    <div className="details-grid">
+      <section className="panel detail-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Claim information</h2>
+            <p>{isReviewer ? "Details submitted by the claimant" : "Details you submitted"}</p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-small"
+            onClick={() => reload()}
+            disabled={loading}
+          >
+            <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
+          </button>
+        </div>
+        <div className="detail-list">
+          {details.map(([label, value]) => (
+            <div className="detail-item" key={label}>
+              <span>{label}</span>
+              <strong>{String(value)}</strong>
+            </div>
+          ))}
+        </div>
+        {form.accident_description && (
+          <div className="description-block">
+            <span>Accident description</span>
+            <p>{form.accident_description}</p>
+          </div>
+        )}
+        {form.damage_description && (
+          <div className="description-block">
+            <span>Damage description</span>
+            <p>{form.damage_description}</p>
+          </div>
+        )}
+      </section>
+
+      <section className="panel detail-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Documents</h2>
+            <p>What has been received and checked</p>
+          </div>
+          <span className="document-count">
+            {docs.length} file{docs.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <div className="document-list">
+          {docs.map((doc, i) => {
+            const validity = String(doc.validity || "").toUpperCase();
+            const needed = pendingTypes.has(doc.document_type);
+            const [tone, label] = needed
+              ? ["needed", "Needed"]
+              : validity === "VALID"
+                ? ["valid", "Valid"]
+                : validity === "INVALID"
+                  ? ["invalid", "Invalid"]
+                  : ["neutral", doc.uploaded ? "Checking" : "Not uploaded"];
+            return (
+              <div className="document-row" key={`${doc.document_type}-${i}`}>
+                <span className="document-row-icon">
+                  <FileText size={18} />
+                </span>
+                <div className="document-row-copy">
+                  <strong>{humanize(doc.document_type) || "Document"}</strong>
+                  <span>{doc.uploaded ? "Uploaded" : "Not uploaded yet"}</span>
+                </div>
+                <span className={`mini-status ${tone}`}>{label}</span>
+              </div>
+            );
+          })}
+          {!docs.length && (
+            <div className="empty-state">
+              <FileText />
+              <strong>No document details returned</strong>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+
+  const decisionPanel = (
+    <section className="panel decision-panel" aria-labelledby="decision-heading">
+      <h2 id="decision-heading">Your decision</h2>
+      {claim.review?.status && (
+        <p className="decision-recommendation">
+          Automated review recommends{" "}
+          <strong>{humanize(claim.review.status).toLowerCase()}</strong>
+          {findings.length > 0 && (
+            <>
+              {" "}
+              · {flagged ? `${flagged} of ${findings.length} checks need attention` : "all checks passed"}
+            </>
+          )}
+        </p>
+      )}
+      <label className="form-field">
+        <span>Reason</span>
+        <textarea
+          name="decision_reason"
+          value={decisionNote}
+          onChange={(e) => setDecisionNote(e.target.value)}
+          maxLength={2000}
+          rows="4"
+          aria-describedby="decision-reason-hint"
+        />
+        <small id="decision-reason-hint" className="field-hint">
+          Required to reject. The claimant will see this reason.
+        </small>
+      </label>
+      <div className="decision-actions">
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => handleDecision("approve")}
+          disabled={Boolean(deciding)}
+        >
+          <CheckCircle2 size={16} />
+          {deciding === "approve" ? "Approving..." : "Approve & complete"}
+        </button>
+        <button
+          type="button"
+          className="btn btn-danger"
+          onClick={() => handleDecision("reject")}
+          disabled={Boolean(deciding)}
+        >
+          <XCircle size={16} />
+          {deciding === "reject" ? "Rejecting..." : "Reject claim"}
+        </button>
+      </div>
+      <p className="decision-meta">Recorded as {user.name}. This cannot be undone.</p>
+    </section>
+  );
 
   return (
     <div className="details-page">
@@ -380,135 +520,20 @@ export default function ClaimDetails({ claimId, user, onBack, onNotify }) {
         </section>
       )}
 
-      {isReviewer && REVIEW_STATUSES.includes(claim.status) && (
-        <section className="panel decision-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Human review decision</h2>
-              <p>
-                Approving completes the claim; rejecting closes it. Recorded as {user.name}.
-              </p>
-            </div>
+      {canDecide ? (
+        <div className="review-layout">
+          <div className="review-main">
+            <ProcessingResults claim={claim} />
+            {detailsGrid}
           </div>
-          <div className="form-grid">
-            <label className="form-field wide">
-              <span>Decision note (required to reject)</span>
-              <textarea
-                name="decision_reason"
-                value={decisionNote}
-                onChange={(e) => setDecisionNote(e.target.value)}
-                maxLength={2000}
-                rows="3"
-                placeholder="Reason for the decision"
-              />
-            </label>
-          </div>
-          <div className="form-actions">
-            <button
-              type="button"
-              className="btn btn-danger"
-              onClick={() => handleDecision("reject")}
-              disabled={Boolean(deciding)}
-            >
-              <XCircle size={16} />
-              {deciding === "reject" ? "Rejecting..." : "Reject claim"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => handleDecision("approve")}
-              disabled={Boolean(deciding)}
-            >
-              <CheckCircle2 size={16} />
-              {deciding === "approve" ? "Approving..." : "Approve & complete"}
-            </button>
-          </div>
-        </section>
+          <aside className="review-aside">{decisionPanel}</aside>
+        </div>
+      ) : (
+        <>
+          {detailsGrid}
+          <ProcessingResults claim={claim} />
+        </>
       )}
-
-      <div className="details-grid">
-        <section className="panel detail-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Claim information</h2>
-              <p>{isReviewer ? "Details submitted by the claimant" : "Details you submitted"}</p>
-            </div>
-            <button
-              type="button"
-              className="btn btn-secondary btn-small"
-              onClick={() => reload()}
-              disabled={loading}
-            >
-              <RefreshCw size={14} className={loading ? "spin" : ""} /> Refresh
-            </button>
-          </div>
-          <div className="detail-list">
-            {details.map(([label, value]) => (
-              <div className="detail-item" key={label}>
-                <span>{label}</span>
-                <strong>{String(value)}</strong>
-              </div>
-            ))}
-          </div>
-          {form.accident_description && (
-            <div className="description-block">
-              <span>Accident description</span>
-              <p>{form.accident_description}</p>
-            </div>
-          )}
-          {form.damage_description && (
-            <div className="description-block">
-              <span>Damage description</span>
-              <p>{form.damage_description}</p>
-            </div>
-          )}
-        </section>
-
-        <section className="panel detail-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Documents</h2>
-              <p>What has been received and checked</p>
-            </div>
-            <span className="document-count">
-              {docs.length} file{docs.length === 1 ? "" : "s"}
-            </span>
-          </div>
-          <div className="document-list">
-            {docs.map((doc, i) => {
-              const validity = String(doc.validity || "").toUpperCase();
-              const needed = pendingTypes.has(doc.document_type);
-              const [tone, label] = needed
-                ? ["needed", "Needed"]
-                : validity === "VALID"
-                  ? ["valid", "Valid"]
-                  : validity === "INVALID"
-                    ? ["invalid", "Invalid"]
-                    : ["neutral", doc.uploaded ? "Checking" : "Not uploaded"];
-              return (
-                <div className="document-row" key={`${doc.document_type}-${i}`}>
-                  <span className="document-row-icon">
-                    <FileText size={18} />
-                  </span>
-                  <div className="document-row-copy">
-                    <strong>{humanize(doc.document_type) || "Document"}</strong>
-                    <span>{doc.uploaded ? "Uploaded" : "Not uploaded yet"}</span>
-                  </div>
-                  <span className={`mini-status ${tone}`}>{label}</span>
-                </div>
-              );
-            })}
-            {!docs.length && (
-              <div className="empty-state">
-                <FileText />
-                <strong>No document details returned</strong>
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
-
-      <ProcessingResults claim={claim} />
 
       <p className="details-footnote">
         <ShieldCheck size={15} aria-hidden="true" /> Claim information is handled through
