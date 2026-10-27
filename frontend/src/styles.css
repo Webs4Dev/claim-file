@@ -4,7 +4,7 @@
    table, forms, uploads, details, help, feedback, responsive
    ========================================================================== */
 
-/* ---------- Tokens (see frontend/DESIGN.md; use these, never raw values) ---------- */
+/* ---------- Tokens (see DESIGN.md at the repo root; use these, never raw values) ---------- */
 :root {
   --font-body: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-head: "Manrope", "DM Sans", system-ui, sans-serif;

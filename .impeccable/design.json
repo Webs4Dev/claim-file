@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-27T00:00:00Z",
+  "title": "Design System: ClaimFile",
+  "extensions": {
+    "colorMeta": {
+      "harbour-teal": { "role": "primary", "displayName": "Harbour Teal", "canonical": "#087f78", "tonalRamp": ["#055a55", "#066c66", "#087f78", "#1fa58a", "#a8e3da", "#cfe7e3", "#d7eeeb", "#eaf6f4"] },
+      "harbour-teal-bright": { "role": "primary", "displayName": "Harbour Teal Bright", "canonical": "#1fa58a" },
+      "harbour-teal-soft": { "role": "primary", "displayName": "Harbour Teal Soft", "canonical": "#eaf6f4" },
+      "bg": { "role": "neutral", "displayName": "Cool Page", "canonical": "#f6f8fb" },
+      "surface": { "role": "neutral", "displayName": "Surface White", "canonical": "#ffffff" },
+      "control-border": { "role": "neutral", "displayName": "Control Border", "canonical": "#7f96ac" },
+      "text": { "role": "neutral", "displayName": "Ink Navy", "canonical": "#20334a", "tonalRamp": ["#192e45", "#20334a", "#44586d", "#637283", "#7f96ac", "#d6dfe6", "#e7edf2", "#f6f8fb"] },
+      "success-fg": { "role": "status", "displayName": "Success", "canonical": "#257e5b", "tonalRamp": ["#257e5b", "#2fa070", "#d3eddf", "#eef9f2"] },
+      "info-fg": { "role": "status", "displayName": "Info", "canonical": "#476eb0", "tonalRamp": ["#476eb0", "#5278b9", "#dce7fb", "#f0f5ff"] },
+      "warning-fg": { "role": "status", "displayName": "Claimant Must Act", "canonical": "#a15f2c", "tonalRamp": ["#a15f2c", "#be8c2c", "#f2dfcf", "#fff5ec"] },
+      "review-fg": { "role": "status", "displayName": "With a Reviewer", "canonical": "#735fba", "tonalRamp": ["#735fba", "#8371c2", "#e4ddfa", "#f4f1ff"] },
+      "danger-fg": { "role": "status", "displayName": "Danger", "canonical": "#b74c4c", "tonalRamp": ["#b74c4c", "#c95c5c", "#f2d9d9", "#fff1f1"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Dashboard metric values." },
+      "headline": { "displayName": "Headline", "purpose": "Page titles (h1); 24px on mobile." },
+      "title": { "displayName": "Title", "purpose": "Panel and form section titles (h2)." },
+      "body": { "displayName": "Body", "purpose": "Claimant pages and all form inputs (16px prevents iOS zoom)." },
+      "body-dense": { "displayName": "Body dense", "purpose": "Reviewer tables, metadata, base body size." },
+      "label": { "displayName": "Label", "purpose": "Labels, badges, captions. Nothing below 12px." }
+    },
+    "shadows": [
+      { "name": "shadow-card", "value": "0 2px 7px rgba(26, 48, 72, 0.03)", "purpose": "Panels." },
+      { "name": "shadow-raised", "value": "0 1px 3px rgba(25, 46, 69, 0.12)", "purpose": "A selected tab or control." },
+      { "name": "shadow-overlay", "value": "0 10px 35px rgba(21, 46, 71, 0.1)", "purpose": "Toast, mobile drawer, sign-in card." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.2, 0.8, 0.2, 1)", "purpose": "Default easing; exits faster than entrances." },
+      { "name": "duration-fast", "value": "150ms", "purpose": "Hover and focus." },
+      { "name": "duration", "value": "220ms", "purpose": "Panels and dialogs." }
+    ],
+    "breakpoints": [
+      { "name": "wide", "value": "1200px" },
+      { "name": "review-stack", "value": "1100px" },
+      { "name": "rail", "value": "900px" },
+      { "name": "phone", "value": "600px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one main action per view.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Submit claim</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 18px; border: 1px solid transparent; border-radius: var(--radius, 10px); font-family: var(--font-body, 'DM Sans', system-ui, sans-serif); font-size: 13.5px; font-weight: 700; cursor: pointer; transition: background 150ms cubic-bezier(0.2, 0.8, 0.2, 1); } .ds-btn:focus-visible { outline: 3px solid var(--teal, #087f78); outline-offset: 2px; } .ds-btn-primary { border-color: var(--teal, #087f78); color: var(--text-inverse, #ffffff); background: var(--teal, #087f78); } .ds-btn-primary:hover { background: var(--teal-dark, #066c66); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Outlined; every action that is not the primary.",
+      "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 0 18px; border: 1px solid var(--line, #e7edf2); border-radius: var(--radius, 10px); color: var(--text-secondary, #44586d); background: var(--surface, #ffffff); font-family: var(--font-body, 'DM Sans', system-ui, sans-serif); font-size: 13.5px; font-weight: 700; cursor: pointer; transition: background 150ms cubic-bezier(0.2, 0.8, 0.2, 1); } .ds-btn-secondary:hover { background: var(--bg, #f6f8fb); } .ds-btn-secondary:focus-visible { outline: 3px solid var(--teal, #087f78); outline-offset: 2px; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Reject; always asks for a reason.",
+      "html": "<button class=\"ds-btn-danger\">Reject claim</button>",
+      "css": ".ds-btn-danger { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 0 18px; border: 1px solid var(--danger-line, #f2d9d9); border-radius: var(--radius, 10px); color: var(--danger-fg, #b74c4c); background: var(--surface, #ffffff); font-family: var(--font-body, 'DM Sans', system-ui, sans-serif); font-size: 13.5px; font-weight: 700; cursor: pointer; transition: background 150ms cubic-bezier(0.2, 0.8, 0.2, 1); } .ds-btn-danger:hover { background: var(--danger-bg, #fff1f1); } .ds-btn-danger:focus-visible { outline: 3px solid var(--teal, #087f78); outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Badges",
+      "kind": "chip",
+      "refersTo": "status-badge-review",
+      "description": "Tone colour plus a text label, never colour alone.",
+      "html": "<span class=\"ds-badge ds-tone-success\"><i></i>Approved</span> <span class=\"ds-badge ds-tone-info\"><i></i>In progress</span> <span class=\"ds-badge ds-tone-warning\"><i></i>Documents needed</span> <span class=\"ds-badge ds-tone-review\"><i></i>Under review</span> <span class=\"ds-badge ds-tone-danger\"><i></i>Rejected</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 6px; min-height: 27px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-sm, 6px); font-family: var(--font-body, 'DM Sans', system-ui, sans-serif); font-size: 12px; font-weight: 600; } .ds-badge i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; } .ds-tone-success { color: var(--success-fg, #257e5b); border-color: var(--success-line, #d3eddf); background: var(--success-bg, #eef9f2); } .ds-tone-info { color: var(--info-fg, #476eb0); border-color: var(--info-line, #dce7fb); background: var(--info-bg, #f0f5ff); } .ds-tone-warning { color: var(--warning-fg, #a15f2c); border-color: var(--warning-line, #f2dfcf); background: var(--warning-bg, #fff5ec); } .ds-tone-review { color: var(--review-fg, #735fba); border-color: var(--review-line, #e4ddfa); background: var(--review-bg, #f4f1ff); } .ds-tone-danger { color: var(--danger-fg, #b74c4c); border-color: var(--danger-line, #f2d9d9); background: var(--danger-bg, #fff1f1); }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Visible label, 16px input, teal border plus soft ring on focus.",
+      "html": "<label class=\"ds-field\">Policy number <b>*</b><input class=\"ds-input\" placeholder=\"e.g. POL-12345\" /></label>",
+      "css": ".ds-field { display: grid; gap: 7px; color: var(--text-secondary, #44586d); font-family: var(--font-body, 'DM Sans', system-ui, sans-serif); font-size: 13px; font-weight: 600; } .ds-field b { color: var(--danger-fg, #b74c4c); } .ds-input { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--control-border, #7f96ac); border-radius: var(--radius-sm, 6px); color: var(--text, #20334a); background: var(--surface, #ffffff); font: 400 16px var(--font-body, 'DM Sans', system-ui, sans-serif); transition: border-color 150ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 150ms cubic-bezier(0.2, 0.8, 0.2, 1); } .ds-input:focus { border-color: var(--teal, #087f78); outline: 0; box-shadow: 0 0 0 3px var(--teal-ring, #d7eeeb); }"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-link-active",
+      "description": "44px links; active is teal on teal-soft.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link ds-active\" href=\"#\">Dashboard</a><a class=\"ds-nav-link\" href=\"#\">New claim</a><a class=\"ds-nav-link\" href=\"#\">Help</a></nav>",
+      "css": ".ds-nav { display: grid; gap: 5px; width: 216px; } .ds-nav-link { display: flex; align-items: center; min-height: 44px; padding: 0 13px; border-radius: var(--radius, 10px); color: var(--text-muted, #637283); font-family: var(--font-body, 'DM Sans', system-ui, sans-serif); font-size: 14px; text-decoration: none; transition: background 150ms cubic-bezier(0.2, 0.8, 0.2, 1); } .ds-nav-link:hover { background: var(--surface-muted, #f4f7f9); } .ds-nav-link:focus-visible { outline: 3px solid var(--teal, #087f78); outline-offset: 2px; } .ds-nav-link.ds-active { color: var(--teal, #087f78); background: var(--teal-soft, #eaf6f4); font-weight: 700; }"
+    },
+    {
+      "name": "Notice",
+      "kind": "card",
+      "refersTo": "notice-info",
+      "description": "Inline message; tone follows meaning (info, success, warning, danger).",
+      "html": "<div class=\"ds-notice\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 16v-4M12 8h.01\"/></svg><span>We are checking your documents. This usually takes a few minutes.</span></div>",
+      "css": ".ds-notice { display: flex; align-items: flex-start; gap: 9px; max-width: 520px; padding: 12px 14px; border: 1px solid var(--info-line, #dce7fb); border-radius: var(--radius, 10px); color: var(--info-fg, #476eb0); background: var(--info-bg, #f0f5ff); font-family: var(--font-body, 'DM Sans', system-ui, sans-serif); font-size: 13px; line-height: 1.5; } .ds-notice svg { flex-shrink: 0; margin-top: 2px; }"
+    },
+    {
+      "name": "Claim Status Card",
+      "kind": "custom",
+      "refersTo": "panel",
+      "description": "Signature: first thing on a claim page, plain-language status with a 4px tone edge.",
+      "html": "<section class=\"ds-status-card\"><div class=\"ds-status-icon\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M12 9v4M12 17h.01\"/><circle cx=\"12\" cy=\"12\" r=\"10\"/></svg></div><div><p class=\"ds-kicker\">Action needed</p><h2>We need one more document</h2><p>Upload a photo of the repair estimate so we can continue your claim.</p></div></section>",
+      "css": ".ds-status-card { display: flex; align-items: flex-start; gap: 16px; max-width: 560px; padding: 24px 24px 20px; border: 1px solid var(--line, #e7edf2); border-left: 4px solid var(--warning-solid, #be8c2c); border-radius: var(--radius, 10px); background: var(--surface, #ffffff); box-shadow: var(--shadow-card, 0 2px 7px rgba(26, 48, 72, 0.03)); font-family: var(--font-body, 'DM Sans', system-ui, sans-serif); } .ds-status-icon { display: grid; flex-shrink: 0; place-items: center; width: 44px; height: 44px; border-radius: var(--radius, 10px); color: var(--warning-fg, #a15f2c); background: var(--warning-bg, #fff5ec); } .ds-kicker { margin: 0 0 4px; color: var(--warning-fg, #a15f2c); font-size: 12px; font-weight: 700; } .ds-status-card h2 { margin: 0 0 6px; color: var(--text-strong, #192e45); font: 800 17px var(--font-head, Manrope, sans-serif); } .ds-status-card p:last-child { margin: 0; color: var(--text-secondary, #44586d); font-size: 14px; line-height: 1.5; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Steady Caseworker",
+    "overview": "ClaimFile should feel like a calm, competent person handling your claim. It tells you where things stand and what happens next before it shows any detail, it puts the evidence next to every automated finding, and it never alarms. That same caseworker is equally at home with both audiences. Claimants are individuals after a car accident, often stressed, who visit a few times per claim, frequently on a phone. Reviewers are insurance staff who use it daily on a desktop and need to clear a queue quickly and defensibly.\n\nThe mood is calm, trustworthy, clear. ClaimFile keeps its own identity (Harbour Teal, Manrope + DM Sans). For UX tone it borrows from the GOV.UK Design System (plain language, accessibility first); for the reviewer queue it borrows the quiet density of the Linear and Stripe dashboards. The style is \"Accessible & Ethical\": WCAG AA contrast, visible focus, 44px touch targets, reduced motion respected. Light theme only for now; tokens are named so dark mode can be added later. Density is comfortable on claimant pages and standard-dense in the reviewer queue and tables.\n\nComponents are quiet and dependable: soft 10px corners, hairline borders, almost no shadow, and colour only where it carries meaning.",
+    "keyCharacteristics": [
+      "Say what happens next. Every claim screen answers \"where is my claim, and do I need to do anything?\" in plain words before showing details.",
+      "One colour, one meaning. Status colours mean the same thing on every screen and for both roles. Harbour Teal is for actions and navigation, never a status.",
+      "Show the evidence. An automated finding is always shown with the document it came from. People make the decision, and the UI says so.",
+      "Readable first. Text meets 4.5:1 contrast; nothing important is lighter grey than `--text-muted`."
+    ],
+    "rules": [
+      { "name": "The One Colour, One Meaning Rule", "body": "A status tone means the same thing on every screen and for both roles. Harbour Teal is for actions and navigation and is never used to signal a status.", "section": "colors" },
+      { "name": "The Readable First Rule", "body": "Text meets 4.5:1; focus rings and control borders meet 3:1. Nothing important is lighter than `--text-muted`.", "section": "colors" },
+      { "name": "The 12px Floor Rule", "body": "Nothing below 12px.", "section": "typography" },
+      { "name": "The Three Shadows Rule", "body": "No other shadows. Allowed raw values: translucent white over the brand panel and sticky topbar (`rgba(255,255,255,…)`) and `--scrim`. Everything else is a token.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use the CSS variables in `frontend/src/styles.css` for every colour, radius, shadow and spacing value.",
+      "Do use one primary (Harbour Teal) button per view.",
+      "Do pair every status colour with a text label.",
+      "Do show an automated finding next to the document it came from.",
+      "Do tell the user what happens next, in plain words, before showing details.",
+      "Do keep inputs at 16px and touch targets at 44px or more."
+    ],
+    "donts": [
+      "Don't use Harbour Teal to mean a status, or a status tone for an action.",
+      "Don't use `--text-faint` or any grey lighter than `--text-muted` for meaningful text.",
+      "Don't set text below 12px.",
+      "Don't add shadows beyond the three in the Shadow Vocabulary.",
+      "Don't put raw hex values in components.",
+      "Don't rely on placeholder text as a label."
+    ]
+  }
+}
