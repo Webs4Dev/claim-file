@@ -1992,8 +1992,74 @@ button:disabled {
     max-width: none;
   }
 
-  .claims-table {
-    min-width: 680px;
+  /* Each claim becomes a card: reference and status first, then vehicle and
+     what happens next. The whole card opens the claim, so the submitted
+     date and the arrow are dropped. */
+  .table-wrap {
+    overflow-x: visible;
+  }
+
+  .claims-table,
+  .claims-table tbody {
+    display: block;
+    white-space: normal;
+  }
+
+  .claims-table thead {
+    display: none;
+  }
+
+  .claims-table tbody tr {
+    display: block;
+  }
+
+  .claims-table .claim-row,
+  .claims-table .skeleton-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .claims-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .claims-table .claim-row td,
+  .claims-table .skeleton-row td {
+    padding: 0;
+    border: 0;
+  }
+
+  .claims-table .claim-row td:nth-child(5),
+  .claims-table .skeleton-row td:nth-child(5) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .claims-table .claim-row td:nth-child(2),
+  .claims-table .claim-row td:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+
+  .claims-table .claim-row td:nth-child(4),
+  .claims-table .claim-row td:nth-child(6),
+  .claims-table .skeleton-row td:nth-child(n + 2):not(:nth-child(5)) {
+    display: none;
+  }
+
+  .claims-table tbody tr:not(.claim-row):not(.skeleton-row) td {
+    display: block;
+  }
+
+  /* The update flash covers the whole card, not just the cells' text. */
+  .claims-table .row-updated {
+    animation: row-flash 2.4s ease-out;
+  }
+
+  .claims-table .row-updated td {
+    animation: none;
   }
 
   .panel-foot {
@@ -2053,12 +2119,22 @@ button:disabled {
     flex-wrap: wrap;
   }
 
+  /* Stacked, primary first: a thumb aimed at Continue cannot land on
+     Cancel and lose the form. */
   .form-actions .btn {
-    flex: 1;
+    flex: 1 1 100%;
+  }
+
+  .form-actions .btn-primary {
+    order: 1;
+  }
+
+  .form-actions .btn-secondary {
+    order: 2;
   }
 
   .step-counter {
-    order: 3;
+    order: 0;
     width: 100%;
     text-align: center;
   }
@@ -3044,7 +3120,8 @@ button:disabled {
   .live-indicator i::after,
   .progress-step.active .progress-dot,
   .skeleton,
-  .row-updated td {
+  .row-updated td,
+  .claims-table .row-updated {
     animation: none;
   }
 }
