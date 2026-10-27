@@ -7,3 +7,6 @@ __pycache__
 data/
 # Playwright CLI session logs
 .playwright-cli/
+
+# Impeccable critique snapshots (local only)
+.impeccable/critique/
