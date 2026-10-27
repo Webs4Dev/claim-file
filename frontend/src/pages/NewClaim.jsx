@@ -52,12 +52,26 @@ const REQUIRED_BY_STEP = [
 const LAST_STEP = STEPS.length - 1;
 const today = () => new Date().toISOString().slice(0, 10);
 
+/** "*" is visual only; screen readers get aria-required instead. */
+function RequiredMark() {
+  return <b aria-hidden="true"> *</b>;
+}
+
+/** Shown under a field the user tried to skip, and linked to it for screen readers. */
+function FieldError({ name, label }) {
+  return (
+    <small className="field-error" id={`${name}-error`}>
+      Enter the {label.toLowerCase()}.
+    </small>
+  );
+}
+
 function Field({ label, name, form, onChange, invalid, required, type = "text", wide }) {
   return (
     <label className={`form-field ${wide ? "wide" : ""} ${invalid ? "invalid" : ""}`}>
       <span>
         {label}
-        {required && <b> *</b>}
+        {required && <RequiredMark />}
       </span>
       <input
         name={name}
@@ -65,9 +79,12 @@ function Field({ label, name, form, onChange, invalid, required, type = "text", 
         onChange={onChange}
         type={type}
         max={type === "date" ? today() : undefined}
+        aria-required={required || undefined}
         aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? `${name}-error` : undefined}
         placeholder={type === "text" ? `Enter ${label.toLowerCase()}` : undefined}
       />
+      {invalid && <FieldError name={name} label={label} />}
     </label>
   );
 }
@@ -76,16 +93,20 @@ function TextArea({ label, name, form, onChange, invalid, placeholder }) {
   return (
     <label className={`form-field wide ${invalid ? "invalid" : ""}`}>
       <span>
-        {label} <b>*</b>
+        {label}
+        <RequiredMark />
       </span>
       <textarea
         name={name}
         value={form[name]}
         onChange={onChange}
         rows="3"
+        aria-required="true"
         aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? `${name}-error` : undefined}
         placeholder={placeholder}
       />
+      {invalid && <FieldError name={name} label={label} />}
     </label>
   );
 }
@@ -129,7 +150,13 @@ export default function NewClaim({ onCreated, onCancel, onNotify }) {
     const blank = REQUIRED_BY_STEP[step].filter((key) => !String(form[key] || "").trim());
     setMissing(blank);
     if (blank.length) {
-      setError("Please complete the highlighted fields before continuing.");
+      setError(
+        blank.length === 1
+          ? "One field needs attention before you continue."
+          : `${blank.length} fields need attention before you continue.`,
+      );
+      // Take keyboard and screen-reader users straight to the first problem.
+      requestAnimationFrame(() => document.querySelector(`[name="${blank[0]}"]`)?.focus());
       return;
     }
     setError("");
@@ -173,7 +200,7 @@ export default function NewClaim({ onCreated, onCancel, onNotify }) {
           <span /> NEW MOTOR CLAIM
         </div>
         <h1>Let's get your claim started.</h1>
-        <p>Share the incident details and upload supporting documents.</p>
+        <p>Share the incident details and upload supporting documents. Fields marked * are required.</p>
       </div>
 
       <ol className="stepper" aria-label="Progress">

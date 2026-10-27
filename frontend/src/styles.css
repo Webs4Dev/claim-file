@@ -30,6 +30,7 @@
   --line-soft: #eff2f5;
   --line: #e7edf2;
   --line-strong: #d6dfe6;
+  --control-border: #7f96ac; /* input outlines, 3:1 on white */
   --scrim: rgba(23, 43, 66, 0.38);
 
   /* Text: every value is at least 4.5:1 on --bg and --surface */
@@ -669,9 +670,9 @@ button:disabled {
   align-items: center;
   gap: 9px;
   width: min(420px, 70%);
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   background: var(--surface);
@@ -683,7 +684,7 @@ button:disabled {
   padding: 8px 0;
   border: 0;
   outline: 0;
-  font-size: 13.5px;
+  font-size: 16px;
 }
 
 .search-field:focus-within {
@@ -703,6 +704,9 @@ button:disabled {
 }
 
 .table-wrap {
+  /* Contain absolutely positioned children (e.g. .sr-only headers) so they
+     scroll with the table instead of widening the whole page on phones. */
+  position: relative;
   overflow-x: auto;
 }
 
@@ -1071,6 +1075,7 @@ button:disabled {
 
 .form-field {
   display: grid;
+  align-content: start; /* an error under one field must not stretch its neighbour */
   gap: 7px;
   min-width: 0;
   color: var(--text-secondary);
@@ -1092,11 +1097,11 @@ button:disabled {
   width: 100%;
   min-height: 44px;
   padding: 10px 12px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-sm);
   color: var(--text);
   background: var(--surface);
-  font-size: 14px;
+  font-size: 16px; /* below 16px, iOS zooms in on focus */
   font-weight: 400;
 }
 
@@ -1116,6 +1121,12 @@ button:disabled {
 .form-field.invalid textarea {
   border-color: var(--danger-solid);
   background: var(--danger-bg);
+}
+
+.field-error {
+  color: var(--danger-fg);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .checkbox-field {
@@ -2006,17 +2017,20 @@ button:disabled {
   }
 
   .step-copy strong {
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .step-copy span {
     display: none;
   }
 
+  /* Steps stack icon-over-label here, so connectors would become stray dashes. */
   .step-line {
-    flex: none;
-    width: 10px;
-    margin: 15px 0 0;
+    display: none;
+  }
+
+  .step:last-child {
+    flex: 1;
   }
 
   .claim-form-panel {
