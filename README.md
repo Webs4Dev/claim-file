@@ -8,6 +8,71 @@ PDFs) and reviews the result. A human reviewer makes the final decision.
 - **Backend:** FastAPI, LangGraph, OpenAI, Chroma + BM25 retrieval, Redis
 - **Frontend:** React + Vite (`frontend/`)
 
+![Claimant view of a rejected claim, with the reason and a button to ask a person to review it](docs/screenshots/claimant-rejected.png)
+
+## How it works
+
+```mermaid
+flowchart LR
+    C[Claimant<br/>React app] -->|claim form + PDFs| API[FastAPI]
+    API -->|background task| S
+
+    subgraph Pipeline [LangGraph pipeline]
+        S{Supervisor} --> V[Validator<br/>checks each document]
+        S --> E[Extractor<br/>pulls out the facts]
+        S --> I[Investigator<br/>checks facts against the policy]
+        S --> R[Reviewer<br/>overall recommendation]
+        V & E & I & R --> SN[Snapshot<br/>save progress]
+        SN --> S
+    end
+
+    I <-->|hybrid search| P[(Policy index<br/>Chroma + BM25)]
+    SN --> DB[(Redis<br/>claims, users, sessions)]
+    S -->|approved| H[Human reviewer<br/>approves or rejects]
+    S -->|rejected| C
+    S -->|missing documents| C
+```
+
+1. A claimant submits the claim form and five documents: policy schedule,
+   vehicle registration, driving licence, damage survey report and repair
+   estimate.
+2. A **supervisor** decides which agent runs next. After every step, the
+   claim's state is saved to Redis, so the UI shows progress live and a
+   failed run can be retried.
+3. The **validator** checks each document, the **extractor** turns them into
+   structured facts, the **investigator** compares those facts with the policy
+   wording (retrieved from the policy PDFs with vector + keyword search), and
+   the **reviewer** combines the findings into a recommendation.
+4. The outcome decides what happens next:
+   - **Approved** claims wait for a human reviewer, who makes the final call.
+   - **Rejected** claims (for example, a documented exclusion such as drunk
+     driving) are closed automatically, and the claimant can ask a person to
+     review them.
+   - **Needs more evidence** claims ask the claimant for documents, or go to
+     internal review.
+5. Each claim has a step, token and cost budget, so a run can never loop or
+   spend without limit.
+
+## Screenshots
+
+| Claimant dashboard | Reviewer queue |
+|---|---|
+| ![Claimant dashboard with claim counts and a claims table](docs/screenshots/claimant-dashboard.png) | ![Reviewer queue with claims waiting for a decision](docs/screenshots/reviewer-dashboard.png) |
+| **Reviewer decision page** | **Sign in** |
+| ![Reviewer claim page with findings and a decision panel](docs/screenshots/reviewer-claim.png) | ![Sign-in page](docs/screenshots/signin.png) |
+
+<img src="docs/screenshots/claimant-phone.png" alt="Claimant dashboard on a phone" width="260">
+
+The layout adapts to phones: claims become cards and buttons stack.
+
+## Where data lives
+
+| Store | What it holds |
+|---|---|
+| Redis | Claims, per-step snapshots, users, sessions, and sorted-set indexes for dashboard filtering and pagination |
+| Chroma (`data/policy_index/`) | Policy wording as embeddings, for meaning-based search |
+| BM25 (`data/policy_bm25/`) | The same wording as a keyword index, for exact terms and clause names |
+
 ## Run locally
 
 Requirements: Python, Node and Docker (tested with Python 3.14 and Node 26).
