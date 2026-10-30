@@ -1,0 +1,10 @@
+# Netlify builds and hosts the static frontend only. The FastAPI backend is
+# not deployed yet, so sign-in and claims show "Request failed (404)"
+# until /api is pointed at a hosted backend.
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
