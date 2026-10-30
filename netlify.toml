@@ -1,5 +1,5 @@
 # Netlify builds and hosts the static frontend only. The FastAPI backend is
-# not deployed yet, so sign-in and claims show "Cannot reach the server"
+# not deployed yet, so sign-in and claims show "Request failed (404)"
 # until /api is pointed at a hosted backend.
 [build]
   base = "frontend"
