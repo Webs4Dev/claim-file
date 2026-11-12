@@ -10,6 +10,3 @@ data/
 
 # Impeccable critique snapshots (local only)
 .impeccable/critique/
-
-# Claude Code project config (local only)
-.claude/
