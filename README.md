@@ -8,6 +8,8 @@ PDFs) and reviews the result. A human reviewer makes the final decision.
 - **Backend:** FastAPI, LangGraph, OpenAI, Chroma + BM25 retrieval, Redis
 - **Frontend:** React + Vite (`frontend/`)
 
+**Video walkthrough:** [Watch on YouTube](https://youtu.be/sPwksaBBYDw)
+
 ![Claimant view of a rejected claim, with the reason and a button to ask a person to review it](docs/screenshots/claimant-rejected.png)
 
 ## How it works
